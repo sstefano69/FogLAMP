@@ -15,7 +15,7 @@ class HelloWorld(object):
         await asyncio.sleep(self.when)
         return(self.what)
 
-class TestPersonClass(TestCase):
+class TestHelloWorld(TestCase):
     def test_send_query_on_create(self):
         """Should send insert query to database on create()"""
         event_loop = asyncio.new_event_loop()
