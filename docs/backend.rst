@@ -9,37 +9,61 @@ Requirements:
 Installation:
 -------------
 
+
 ``cd src/python``
 
-1. setup and activate virtual env
+1. activate virtual env
 
-    ``pip3.5 install virtualenv``
+    ``pip3 install virtualenv``
 
-    ``python3.5_path=$( which python3.5 )``
+    ``python3.5_path=$( which python3 )``
 
     ``virtualenv --python=$python3.5_path venv/fogenv``
 
     ``source venv/fogenv/bin/activate``
 
-    make sure, now you see prompt with (fogenv) as prefix
+    Make sure, now you see prompt with (fogenv) as prefix
 
 
     if using pycharm, make sure to set
+
     PyCharm > Project Interpreter > Add local ``src/python/venv/fogenv/bin/python``
 
 2. ``pip install -r requirements.txt``
 
 
-3. ``python setup.py develop --user``
+3. **installation**
 
-   Adding FogLAMP 0.1 to easy-install.pth file
+   3.1 **using setup.py**
 
-   Installing foglamp script to ``~/.local/bin``
+       ``python setup.py install --user --prefix= --record install-info.txt``
 
-   Installing foglamp-d script to ``~/.local/bin``
+            Installing foglamp script to src/python/venv/fogenv/bin
 
-   **To clean:**
+            Installing foglamp-d script to src/python/venv/fogenv/bin
 
-   ``python setup.py clean --all``
+            Installed src/python/venv/fogenv/lib/python3.5/site-packages/FogLAMP-0.1-py3.5.egg
 
-   You may want: ``~/.local/bin$ rm -rf foglamp foglamp-d``
+            Processing dependencies for FogLAMP==0.1
+
+            Finished processing dependencies for FogLAMP==0.1
+
+            writing list of installed files to ``install-info.txt``
+
+       **To uninstall:**
+
+            ``cat install-info.txt | xargs  rm -rf``
+
+            ``rm -rf install-info.txt``
+
+
+       **To clean:**
+
+            ``python setup.py clean --all``
+
+       [if not in virtual env, it will install in ~/.local/bin for ubuntu] Actually check: ``install-info.txt``
+
+
+   3.2 **using pip**
+
+       Check ``./build.sh -h`` in ``src/python/`` directory for quick setup and run.
