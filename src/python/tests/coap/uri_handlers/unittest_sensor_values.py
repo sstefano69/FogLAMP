@@ -78,9 +78,20 @@ class CreateEngineContextManager(MagicMock):
         pass
 
 class FakeConfig(MagicMock):
+    """
+    Fake configuration file/info
+    """
     db_conn_str = "fake_connection"
 
 def _run(coro):
+    """
+    using asyncio run coro (request)
+    Args:
+        coro: 
+
+    Returns:
+
+    """
     return asyncio.get_event_loop().run_until_complete(coro)
 
 # http://docs.sqlalchemy.org/en/latest/core/dml.html
