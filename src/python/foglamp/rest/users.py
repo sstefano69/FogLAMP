@@ -1,6 +1,9 @@
 ## Create table stmt – password has to be at least 6 characters long.
 
-import sqlite3
+import aiopg.sa
+import foglamp.model.config as config
+import sqlalchemy as sa
+
 
 user_info_table = """
     CREATE TABLE users (
@@ -11,8 +14,8 @@ user_info_table = """
         CHECK(char_length(password) >= 6) 
     ); 
 """
-conn = sqlite3.connect("data.db")
-cur= conn.cursor()
+engine = aiopg.sa.create_engine(config.db_connection_string)
+conn = engine.acquire()
 
 # POST
 def new_user(username, password):
@@ -30,8 +33,8 @@ def new_user(username, password):
     """
     insrt_stmt = "INSERT INTO users(username, password) VALUES (%s,%s);"
     if find_by_username(username=username) is None:
-        cur.execute(insrt_stmt % (username, password))
-        conn.commit()
+        conn.execute(insrt_stmt % (username, password))
+        conn.execute("commit")
         return 0 # success
     return 1 # user already exists
 
