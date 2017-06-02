@@ -15,7 +15,7 @@ from aiocoap import *
 # ~/Development/FogLAMP/src/python$ ./build.sh --run
 #
 # testing commit.
-#test 11
+#test 12
 
 async def main():
     protocol = await Context.create_client_context()
