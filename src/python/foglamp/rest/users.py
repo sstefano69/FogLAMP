@@ -49,6 +49,16 @@ class CreateTableUser(resource.Resource):
     def __init__(self):
         super(CreateTableUser, self).__init__()
 
+    def register(self, resourceRoot):
+        """
+        Register the resource
+        Args:
+            resourceRoot: 
+        Returns:
+        """
+        resourceRoot.add_resource(('other', 'user-data'), self)
+        return
+
     async def new_user_table(self, request):
         """
         Create User Table
@@ -122,11 +132,24 @@ class CreateTableUser(resource.Resource):
             async with engine.aquire() as conn:
                 if check_user_information(conn=conn, username=username, password=password) == 0:
                     if check_user_information(conn=conn, username=username, password=password) == 0:
-                    try:
-                        await conn.execute("DELETE FROM user_info WHERE username = '%s';" % username)
-                    except psycopg2.IntegrityError as e:
-                        logging.getLogger('user-data').exception("Unable to remove %s in user_info" % username)
-            return aiocoap.Message(payload=''.encode('utf-8'))
+                        try:
+                            await conn.execute("DELETE FROM user_info WHERE username = '%s';" % username)
+                        except psycopg2.IntegrityError as e:
+                            logging.getLogger('user-data').exception("Unable to remove %s in user_info" % username)
+        return aiocoap.Message(payload=''.encode('utf-8'))
+
+    async def select_all(self):
+        """
+        SELECT all values in table
+        Returns:
+        """
+        async with aiopg.sa.create_engine(config.db_connection_string) as engine:
+            async with engine.aquire() as conn:
+                try:
+                    await conn.execute("SELECT * FROM user_info;")
+                except psycopg2.IntegrityError as e:
+                    logging.getLogger('user-data').exception("Unable to retrive data from table")
+        return aiocoap.Message(payload=''.encode('utf-8'))
 
 
 
