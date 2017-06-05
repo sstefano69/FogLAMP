@@ -1,4 +1,4 @@
-from foglamp.coap.sensor_values import SensorValues
+from foglamp.device_api.coap.sensor_values import SensorValues
 import unittest
 from unittest import mock
 from unittest.mock import MagicMock

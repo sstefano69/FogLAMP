@@ -1,37 +1,21 @@
-"""
-Environment variables
-
-# FOGLAMP_DB_PASSWORD
-"""
 import os
-import yaml
-import foglamp.config as config
-
-# TODO: write tests
-
+import foglamp.env as env
 
 db_connection_string = None
-"""
+"""Database connection string.
 See http://docs.sqlalchemy.org/en/latest/core/engines.html
 """
 
 
-def read_config():
+def read():
+    """Sets the db_connection_string module attribute using
+    foglamp.config
+    |
+    The FOGLAMP_DB_PASSWORD environment variable
+    overrides the database password specified in config.
     """
-    reading the YAML config_file as defined via FOGLAMP_CONFIG_PATH
-    FOGLAMP_CONFIG_PATH env variable should point to a valid YAML (copied
-    from foglamp-env.example.yaml) file
-    """
 
-    cfg = config.config
-
-    if cfg is None:
-        return
-
-    config_params = cfg['database']
-
-    # print(config_params)
-    # log if db password is not found in env variables
+    config_params = env.data['database']['dev']
 
     password = os.environ.get('FOGLAMP_DB_PASSWORD')
     if password is "":
@@ -51,6 +35,4 @@ def read_config():
         config_params['port'],
         config_params['db']
     )
-
-read_config()
 
