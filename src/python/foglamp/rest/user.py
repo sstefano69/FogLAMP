@@ -1,6 +1,7 @@
 """
-Description: The following class is intended as a tool 
+Description: The following class is intended as an example of implementing User as part of the REST API.
 """
+
 import aiocoap.resource as resource
 import psycopg2
 import aiopg.sa
