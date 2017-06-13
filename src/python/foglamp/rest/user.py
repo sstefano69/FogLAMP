@@ -1,177 +1,141 @@
-"""
-The User correlates to the following list of tables: 
--- users:                           provide information regarding a given user 
--- user_login:                      provide information regarding logging into the system 
--- roles:                           provide information regarding a given role 
--- user_asset_permissions:          provide information regarding which assets user has access to          
--- user_resource_permissions:       provide information regarding which resouces user has access to
--- role_asset_permissions:          provide information regarding which assets a role has access to
--- role_resource_permission:        provide information regarding which resouces a role has access to
+import sqlalchemy
+import sys
 
-Questions: 
-1. Can a user with a given role has different permissions than his/her role? 
-2. for users.uid is that unique, or can 2 users have the same name 
-
-Relationship 
-users.id is referenced by: 
-- user_asset_permissions.user_id 
-- user_logins.user.id 
-- user_resource_permissions.user_id 
-
-roles.id is refrenced by: 
-- users.role_id
-"""
-
-import aiocoap.resource as resource
-import psycopg2
-import aiopg.sa
-import logging
-import sqlalchemy as sa
-from cbor2 import loads
-import foglamp.model.config as config
-import aiocoap
-
-
-# Validate SQL - https://stackoverflow.com/questions/20718469/validation-in-sqlalchemy
-
-class TestUser:
-    def __init__(self):
-        self.user=User()
-
-    def test_insert_role(self):
-        """
-        Validate that an Insert works 
-        Returns:
-        """
-        # should fail because table not expected
-        self.user.insert_row(table='role',columnValues={'id':1234,'name':'qa','description':'test product'})
-        # should fail because column not expected
-        self.user.insert_row(table='role', column={'id': 1234, 'name': 'qa', 'description': 'test product'})
-        # should pass
-        self.user.insert_row(tableName='role', columnValues={'id': 1234, 'name': 'qa', 'description': 'test product'})
-
-    def test_update_row(self):
-        """
-        validate that an update works 
-        Returns:
-        """
-        # Test 1 for 1
-        self.user.update_row(tableName='role',updateValues={'description': 'create new tests'},whereValues={'id': 1234})
-        # Test 2 for 1
-        self.user.update_row(tableName='role',updateValues={'name':'test developer','description':'create new tests'},
-                             whereValues={'id':1234})
-        # Test 1 for 2
-        self.user.update_row(tableName='role',updateValues={'description': 'create new tests'},
-                             whereValues={'id': 1234,'name':'qa'})
-
-    def test_remove_row(self):
-        # only table name and data
-        self.user.remove_row(tableName='role',whereValue={'id':1234})
-        # only table name
-        self.test_remove_row(tableName='role')
-
-    def test_select_all_roles(self):
-        """
-        validate that SELECT *
-        """
-        # should fail because table not expected
-        self.user.select_all(table='role')
-        # should pass
-        self.user.select_all(tableName='role')
+_user = sqlalchemy.Table('foglamp.users',sqlalchemy.MetaData(),
+                         sqlalchemy.Column("id",sqlalchemy.INTEGER,primary_key=True),
+                         sqlalchemy.Column("uid",sqlalchemy.CHAR(80)),
+                         sqlalchemy.Column("role_id",sqlalchemy.INTEGER),
+                         sqlalchemy.Column("description",sqlalchemy.CHAR(255)),
+                         sqlalchemy.Column("pwd",sqlalchemy.CHAR(255)),
+                         sqlalchemy.Column("public_key",sqlalchemy.CHAR(255)),
+                         sqlalchemy.Column("access_method",sqlalchemy.SMALLINT))
 
 class User:
     def __init__(self):
-        super(User, self).__init__()
+        self.engine = sqlalchemy.create_engine('postgres://foglamp:foglamp@192.168.0.182/foglamp')
+        self.conn = self.engine.connect()
 
-    async def insert_row(self,**args,**kwargs):
+    def insert(self,*args,**kwargs):
         """
-        based on the information provided by user insert rows 
-            User should provide: tableName, and columnValues which is a dict containing both column [key] and values
+        INSERT rows into table 
+            By current table definition each role requires a name that is unique. 
         Args:
             **kwargs: 
+
         Returns:
-            aiocoap.Message
+            _user.c.id 
         """
-        tableName = args[0]
+        # Expect variables to show as either args or kwargs
+        if args is None or len(args) == 0:
+            data = kwargs
+        else:
+            data = args[0]
 
-        values = {}
-        for key in kwargs.keys():
-            values[key] = kwargs[key]
+        stmt = _user.insert().values(data).compile(compile_kwargs={"literal_binds": True})
+        try:
+            self.conn.execute(str(stmt).replace('"',''))
+        except:
+            sys.exit()
+        self.conn.execute("commit")
+        return self.select_id(data) # Return row id that was just inserted
 
-        async with aiopg.sa.create_engine(config.db_connection_string) as engine:
-            async with engine.aquire() as conn:
-                try:
-                    await sa.sql.expression.insert(tableName, values=values, inline=False, bind=None, prefixes=None,
-                                                   returning=None, return_defaults=False)
-                except psycopg2.IntegrityError as e:
-                    logging.getLogger('user-data').exception("Unable to execute query against user/role data")
-        return aiocoap.Message(payload=''.encode('utf-8'))
-
-    async def update_row(self,**args,**kwargs):
+    def select_id(self,*args,**kwargs):
         """
-        Unlike the INSERT and DELETE which have **kwagers that all go to the same SQLAlchemy variable, the update
-        has one that goes to the UPDATE VALUE condition, and another to the WHERE condition. As such, while I'm using
-        kwargs, they are really expecting two method variables 'updateColumn','whereColumn'. In each variable a 
-        dictionary of values corresponding to the change will be placed. 
-        Command example: 
-            user.update_row(tableName,updateColumn={column:'value',column:'value',column:'value'},
-                            whereCondition={column:'value',column:'value',column:'value'}) 
-
-
-        Update specific row(s) for table based on WHERE condition
-            User should provide: tableName, updateColumn dict containing updating column name [key] and value,
-                                  whereColumn containing column name [key] and value 
+        Get row id by _user.c.name in an array format since there could be more than 1 row. 
         Args:
-            **args
-            **kwargs: 
+            name: 
         Returns:
-            aiocoap.Message(payload=''.encode('utf-8'))
+            _user.c.id
         """
-        tableName=args[0]
-        command = kwargs
-        stmt = "UPDATE {} SET {} WHERE {}"
-        updateColumn={}
-        whereColumn={}
+        # Expect variables to show as either args or kwargs
+        if args is None or len(args) == 0:
+            data = kwargs
+        else:
+            data = args[0]
+        stmt = sqlalchemy.select([_user.c.id])
+        id = []
 
-        # Check for appropriate information
-        if sorted(command.keys()) != sorted(['updateColumn','whereColumn']):
-            print ("Error Unexpected Key")
-            return
+        # Prepare WHERE conditions for SELECT stmt
+        for column in _user.c:
+            for name in list(data.keys()):
+                if column.name == name:
+                    stmt = stmt.where(column == data[column.name])
+        stmt = stmt.compile(compile_kwargs={"literal_binds": True})
 
-        #Prepare update statement
-        for column in kwargs['updateColumn'].keys():
-            updateColumn[column]=kwargs['updateColumn'][column]
+        # execute  SELECT stmt
+        try:
+            result = self.conn.execute(str(stmt).replace('"', ''))
+        except self.conn.Error as e:
+            print(e)
+            sys.exit()
+        # Prepare result as an array of values
+        for i in result.fetchall():
+            id.append(i[0])
+        return id
 
-        for column in command['whereColumn'].keys():
-            whereColumn[column]=kwargs['whereColumn'][column]
+    def delete(self,*args,**kwargs):
+        """
+        DELETE rows from table based on WHERE conditions
+        Args:
+            self: 
+            *args: 
+            **kwargs: 
 
-        # Execute statement
-        async with aiopg.sa.create_engine(config.db_connection_string) as engine:
-            async with engine.aquire() as conn:
-                try:
-                    await sa.sql.expression.update(tableName, whereclause=whereColumn, values=updateColumn,
-                                                           inline=False, bind=None, prefixes=None, returning=None,
-                                                           return_defaults=False, preserve_parameter_order=False, **dialect_kw)¶
+        Returns:
 
-                except psycopg2.IntegrityError as e:
-                    logging.getLogger('user-data').exception("Unable to execute query against user/role data")
-        return aiocoap.Message(payload=''.encode('utf-8'))
+        """
+        # Expect variables to show as either args or kwargs
+        if args is None or len(args) == 0:
+            data = kwargs
+        else:
+            data = args[0]
+        removed_id = None
+        stmt = _user.delete()
 
+        # Prepare WHERE conditions for DELETE stmt
+        for column in _user.c:
+            for key in list(data.keys()):
+                if column.name == key:
+                    if removed_id is None:
+                        col = column.name
+                        removed_id = self.select_id(col = data[_user.c.name.name])  # id being removed
+                    stmt = stmt.where(column == data[key])
 
-    async def remove_row(self,**args,**kwargs):
-        tableName = args[0]
+        stmt = stmt.compile(compile_kwargs={"literal_binds": True})
+        # execute DELETE stmt
+        try:
+            result = self.conn.execute(str(stmt).replace('"', ''))
+        except self.conn.Error as e:
+            print(e)
+            sys.exit()
+        return removed_id # rows that were remove
 
-        values = {}
-        for key in kwargs.keys():
-            values[key] = kwargs[key]
+    def update(self,value_set=None,where_condition=None):
+        """
+        Given that **kwargs doesn't necessarily return the values in order, 
+            the script execpts value_set (what's being updated) and where_condition (based on)
+            as dictionaries. 
+        Args:
+            value_set: 
+            where_condition: 
+        Returns:
+            _user.c.id
+        """
+        updated_rows=self.select_id(where_condition)
+        stmt = sqlalchemy.update(_user).values(value_set)
 
-        async with aiopg.sa.create_engine(config.db_connection_string) as engine:
-            async with engine.aquire() as conn:
-                try:
-                    await sa.sql.expression.delete(tableName, values=values, inline=False, bind=None, prefixes=None,
-                                                   returning=None, return_defaults=False)
-                except psycopg2.IntegrityError as e:
-                    logging.getLogger('user-data').exception("Unable to execute query against user/role data")
-        return aiocoap.Message(payload=''.encode('utf-8'))
+        # WHERE condition
+        for column in where_condition:
+            where_value = where_condition[column]
+            for where_col in _user.c:
+                if where_col.name == column:
+                    stmt = stmt.where(where_col == where_value)
 
+        stmt = stmt.compile(compile_kwargs={"literal_binds": True})
+        try:
+            result = self.conn.execute(str(stmt).replace('"', ''))
+        except self.conn.Error as e:
+            print(e)
+            sys.exit()
 
+        return updated_rows
