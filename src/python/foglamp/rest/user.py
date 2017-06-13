@@ -1,5 +1,15 @@
 import sqlalchemy
 import sys
+import uuid
+import psycopg2
+import aiocoap.resource
+import logging
+import sqlalchemy as sa
+from cbor2 import loads
+from sqlalchemy.dialects.postgresql import JSONB
+import aiopg.sa
+import foglamp.env as env
+
 
 _user = sqlalchemy.Table('foglamp.users',sqlalchemy.MetaData(),
                          sqlalchemy.Column("id",sqlalchemy.INTEGER,primary_key=True),
@@ -11,11 +21,7 @@ _user = sqlalchemy.Table('foglamp.users',sqlalchemy.MetaData(),
                          sqlalchemy.Column("access_method",sqlalchemy.SMALLINT))
 
 class User:
-    def __init__(self):
-        self.engine = sqlalchemy.create_engine('postgres://foglamp:foglamp@192.168.0.182/foglamp')
-        self.conn = self.engine.connect()
-
-    def insert(self,*args,**kwargs):
+    async def insert(self,*args,**kwargs):
         """
         INSERT rows into table 
             By current table definition each role requires a name that is unique. 
@@ -32,14 +38,21 @@ class User:
             data = args[0]
 
         stmt = _user.insert().values(data).compile(compile_kwargs={"literal_binds": True})
-        try:
-            self.conn.execute(str(stmt).replace('"',''))
-        except:
-            sys.exit()
-        self.conn.execute("commit")
+        async with aiopg.sa.create_engine(env.db_connection_string) as engine:
+            async with engine.acquire() as conn:
+                try:
+                    await conn.execute(str(stmt).replace('"',''))
+                except psycopg2.IntegrityError as e:
+                    logging.getLogger('user-table').exception("unable to INSERT into table")
+                else:
+                    try:
+                        conn.execute("commit")
+                    except psycopg2.IntegrityError as e:
+                        logging.getLogger('user-table').exception("unable to COMMIT data")
+
         return self.select_id(data) # Return row id that was just inserted
 
-    def select_id(self,*args,**kwargs):
+    async def select_id(self,*args,**kwargs):
         """
         Get row id by _user.c.name in an array format since there could be more than 1 row. 
         Args:
@@ -63,17 +76,18 @@ class User:
         stmt = stmt.compile(compile_kwargs={"literal_binds": True})
 
         # execute  SELECT stmt
-        try:
-            result = self.conn.execute(str(stmt).replace('"', ''))
-        except self.conn.Error as e:
-            print(e)
-            sys.exit()
-        # Prepare result as an array of values
-        for i in result.fetchall():
-            id.append(i[0])
+        async with aiopg.sa.create_engine(env.db_connection_string) as engine:
+            async with engine.acquire() as conn:
+                try:
+                    result = conn.execute(str(stmt).replace('"',''))
+                except psycopg2.IntegrityError as e:
+                    logging.getLogger('user-table').exception("unable to retrive IDs from table ")
+                else:
+                    for i in result.fetchall():
+                        id.append(i[0])
         return id
 
-    def delete(self,*args,**kwargs):
+    async def delete(self,*args,**kwargs):
         """
         DELETE rows from table based on WHERE conditions
         Args:
@@ -103,14 +117,15 @@ class User:
 
         stmt = stmt.compile(compile_kwargs={"literal_binds": True})
         # execute DELETE stmt
-        try:
-            result = self.conn.execute(str(stmt).replace('"', ''))
-        except self.conn.Error as e:
-            print(e)
-            sys.exit()
+        async with aiopg.sa.create_engine(env.db_connection_string) as engine:
+            async with engine.acquire() as conn:
+                try:
+                    await conn.execute(str(stmt).replace('"',''))
+                except psycopg2.IntegrityError as e:
+                    logging.getLogger('user-table').exception("unable to DELETE from table")
         return removed_id # rows that were remove
 
-    def update(self,value_set=None,where_condition=None):
+    async def update(self,value_set=None,where_condition=None):
         """
         Given that **kwargs doesn't necessarily return the values in order, 
             the script execpts value_set (what's being updated) and where_condition (based on)
@@ -132,10 +147,11 @@ class User:
                     stmt = stmt.where(where_col == where_value)
 
         stmt = stmt.compile(compile_kwargs={"literal_binds": True})
-        try:
-            result = self.conn.execute(str(stmt).replace('"', ''))
-        except self.conn.Error as e:
-            print(e)
-            sys.exit()
-
+        async with aiopg.sa.create_engine(env.db_connection_string) as engine:
+            async with engine.acquire() as conn:
+                try:
+                    await conn.execute(str(stmt).replace('"',''))
+                except psycopg2.IntegrityError as e:
+                    logging.getLogger('user-table').exception("unable to UDATE into table")
         return updated_rows
+
