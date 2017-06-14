@@ -21,5 +21,23 @@ def build():
     # Static content - It's a hack
     #router__.add_static('/', '/home/foglamp/foglamp/example/web/login')
 
+    # TODO: read from config, if dev mode then only enable CORS
+    enable_cors(app)
     return app
+
+def enable_cors(app):
+    import aiohttp_cors
+
+    # Configure default CORS settings.
+    cors = aiohttp_cors.setup(app, defaults={
+        "*": aiohttp_cors.ResourceOptions(
+            allow_credentials=True,
+            expose_headers="*",
+            allow_headers="*",
+        )
+    })
+
+    # Configure CORS on all routes.
+    for route in list(app.router.routes()):
+        cors.add(route)
 
