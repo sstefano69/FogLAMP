@@ -1,5 +1,8 @@
 
+from threading import Thread
+from time import sleep
 
+import queue
 
 import asyncio
 import psycopg2
@@ -11,6 +14,86 @@ class messagestate(Enum):
     uploaded=0
     ready=1
     done=2
+
+
+class storage(object):
+
+    def __init__(self):
+        self.q = queue()
+
+    def get_queue(self):
+        return self.q
+
+
+    def put_message(self, msg):
+        self.q.put(msg)
+
+
+class storage_engine:
+    def __init__(self, connection_string, stor):
+        self.running=True
+        self.conn = psycopg2.connect("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'")
+        self.reader_id= uuid.uuid1()
+        self.store=stor
+
+    def save_message(self, msg):
+        cur = self.conn.cursor()
+        cur.execute("insert into message_queue (state,reader_id,message_data) values(0,NULL,'blah')")
+
+
+    def next_message(self):
+        cur = self.conn.cursor()
+        cur.execute("select message_id from message_queue where reader_id ='" + str(self.reader_id) + "'")
+
+
+    def get_state(self, id):
+        cur = self.conn.cursor()
+        cur.execute("select state from message_queue where message_id ='" + str(id) + "'")
+        row = cur.fetchone()
+        return row[0]
+
+
+
+    def process(self,id):
+        state= get_state(id)
+        
+
+
+
+
+
+def worker_thread(se):
+    while True:
+
+        #first lets insert all messages added to storage to the db message_queue
+        try:
+            while True:
+                message=se.store.get_queue().get()
+                se.save_message(message)
+
+        except:
+            pass
+
+
+        message_id= se.next_message()
+        if message_id>0:
+            se.process(message_id)
+
+
+
+
+class threadData(object):
+    def __init__(self, connect_string):
+        self.conn = psycopg2.connect(connect_string)
+        self.running = True
+
+def threaded_function(arg):
+
+
+     while(arg.running):
+        print("running")
+        sleep(1)
+
 
 
 async def main():
