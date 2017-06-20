@@ -3,11 +3,14 @@ Authentication-related URI handlers
 """
 
 from datetime import datetime, timedelta
-from foglamp.admin_api.model import User
-from foglamp.admin_api.auth import authentication_required
 import jwt
 from aiohttp import web
-from foglamp.admin_api.auth import JWT_ALGORITHM, JWT_REFRESH_MINUTES, JWT_EXP_DAYS, JWT_SECRET
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+
+from foglamp.admin_api.model import User
+from foglamp.admin_api.auth import authentication_required
+from foglamp.admin_api.auth import JWT_ALGORITHM, JWT_REFRESH_MINUTES, JWT_EXP_DAYS, JWT_SECRET, json_response, privateRsaKey, foglamp_auth_type
 
 async def login(request):
     """Given a user name and a password as query string, tokens
@@ -47,8 +50,12 @@ async def login(request):
                        'access': 0
                       }
 
-    access_t = jwt.encode(access_payload, JWT_SECRET, JWT_ALGORITHM)
-    refresh_t = jwt.encode(refresh_payload, JWT_SECRET, JWT_ALGORITHM)
+    if foglamp_auth_type == 'HMAC':
+        access_t = jwt.encode(access_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        refresh_t = jwt.encode(refresh_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    else:
+        access_t = jwt.encode(access_payload, privateRsaKey, algorithm=JWT_ALGORITHM)
+        refresh_t = jwt.encode(refresh_payload, privateRsaKey, algorithm=JWT_ALGORITHM)
 
     return web.json_response({'access_token': access_t.decode('utf-8'),
                           'refresh_token': refresh_t.decode('utf-8'),
@@ -74,7 +81,11 @@ async def refresh_token(request):
                        + timedelta(minutes=JWT_REFRESH_MINUTES)),
                'access': 1
               }
-    jwt_token = jwt.encode(payload, JWT_SECRET, JWT_ALGORITHM)
+
+    if foglamp_auth_type == 'HMAC':
+        jwt_token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    else:
+        jwt_token = jwt.encode(payload, privateRsaKey, algorithm=JWT_ALGORITHM)
     return web.json_response({'access_token': jwt_token.decode('utf-8')})
 
 
