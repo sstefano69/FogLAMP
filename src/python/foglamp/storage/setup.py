@@ -8,10 +8,10 @@ from queue import Queue
 import asyncio
 import psycopg2
 import uuid
-from enum import Enum
+from enum import IntEnum
 
 
-class messagestate(Enum):
+class messagestate(IntEnum):
     uploaded=0
     ready=1
     done=2
@@ -36,8 +36,9 @@ class upload_queue:           #just move to read queue
 
     def process(self, message_id):  #this is code to actually unpak the message
         cur = self.conn.cursor()
-        cur.execute("update message_queue set state = "+str( messagestate.ready) + " where message_id ='" + str(message_id) + "'")
-        print("message moved to ready queue")
+        print("message moved to ready queue "+ str(int( messagestate.ready)))
+        cur.execute("update message_queue set reader_id=NULL, state = "+ str(int( messagestate.ready)) + " where message_id ='" + str(message_id) + "'")
+
 
 class ready_queue:
     def __init__(self, conn):
@@ -45,9 +46,12 @@ class ready_queue:
 
     def process(self, message_id):  #this is code to actually unpak the message
         cur = self.conn.cursor()
-        cur.execute("select message from message_queue where message_id ='" + str(message_id) + "'")
+        cur.execute("select message_queue from message_queue where message_id ='" + str(message_id) + "'")
         row = cur.fetchone()
         print(row) #for now just print the message
+        cur.execute("update message_queue set reader_id=NULL, state = "+str(int(messagestate.done)) + " where message_id ='" + str(message_id) + "'")
+        print("message moved to done queue")
+
 
 
 
@@ -63,14 +67,17 @@ class storage_engine:
 
     def save_message(self, msg):
         cur = self.conn.cursor()
-        cur.execute("insert into message_queue (state,reader_id,message_data) values(0, '"+str(self.reader_id)+"','blah')")
+        cur.execute("insert into message_queue (state,reader_id,message_data) values(0, NULL,'blah')")
 
 
     def next_message(self):
         cur = self.conn.cursor()
         cur.execute("select message_id from message_queue where reader_id ='" + str(self.reader_id) + "'")
         row = cur.fetchone()
-        return row[0]
+        if row is None:
+            return 0
+        else:
+            return row[0]
 
     def get_state(self, id):
         cur = self.conn.cursor()
@@ -78,13 +85,17 @@ class storage_engine:
         row = cur.fetchone()
         return row[0]
 
+    def get_batch(self):
+        cur = self.conn.cursor()
+        cur.execute("update message_queue set reader_id='" + str(self.reader_id) + "' where state <"+ str(int( messagestate.done)) + " and reader_id is NULL")
+
 
 
     def process(self,message_id):
         state = self.get_state(message_id)
 
         if(state==messagestate.uploaded):
-            pass
+            self.uq.process(message_id)
         elif (state==messagestate.ready):
             self.rq.process(message_id)
         elif (state==messagestate.done):
@@ -102,7 +113,7 @@ class workerthread(threading.Thread):
 
     def run(self):
         print ("Starting worker thread")
-        while True:  #thread will loop until stopped
+        while self.running:  #thread will loop until stopped
 
             # first lets insert all messages added to storage to the db message_queue
             try:
@@ -112,6 +123,10 @@ class workerthread(threading.Thread):
 
             except Exception as e:
                 pass
+
+
+            self.se.get_batch()  #grab a batch of mesages for processing
+
 
             message_id = self.se.next_message()
             if message_id > 0:
@@ -139,18 +154,6 @@ def worker_thread(se):
 
 
 
-
-class threadData(object):
-    def __init__(self, connect_string):
-        self.conn = psycopg2.connect(connect_string)
-        self.running = True
-
-def threaded_function(arg):
-
-
-     while(arg.running):
-        print("running")
-        sleep(1)
 
 
 
@@ -212,8 +215,9 @@ async def main():
             wt = workerthread(se)
             wt.start()
 
-            #sleep(100)  #sleep for a while
-            #wt.running=False
+            sleep(20)  #sleep for a while
+            print("Stopping queue engine")
+            wt.running=False
 
             wt.join()  #wait for thread to end
 
