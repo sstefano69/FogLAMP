@@ -104,7 +104,7 @@ class storage_engine:
             pass #do the default
 
 
-class workerthread(threading.Thread):
+class worker_thread(threading.Thread):
     def __init__(self, se):
         threading.Thread.__init__(self)
         self.se = se
@@ -134,23 +134,6 @@ class workerthread(threading.Thread):
 
             sleep(1)
 
-
-def worker_thread(se):
-    while True:
-
-        #first lets insert all messages added to storage to the db message_queue
-        try:
-            while True:
-                message=se.store.get_queue().get()
-                se.save_message(message)
-
-        except:
-            pass
-
-
-        message_id= se.next_message()
-        if message_id>0:
-            se.process(message_id)
 
 
 
@@ -212,10 +195,10 @@ async def main():
 
             se =storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'",store)
 
-            wt = workerthread(se)
+            wt = worker_thread(se)
             wt.start()
 
-            sleep(20)  #sleep for a while
+            sleep(10)  #sleep for a while
             print("Stopping queue engine")
             wt.running=False
 
