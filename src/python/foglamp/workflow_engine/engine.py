@@ -16,6 +16,20 @@ class messagestate(IntEnum):
     ready=1
     done=2
 
+class requesttype(IntEnum):
+    ping_engine=0
+    stop_engine=1
+    set_config=2
+    get_config=3
+    create_user=4
+    drop_user=5
+    get_reading=6
+
+class returncode(IntEnum):
+    success=0,
+    failed=1,
+    success_with_warning=2
+
 
 class storage(object):
 
@@ -28,6 +42,8 @@ class storage(object):
 
     def put_message(self, msg):
         self.q.put(msg)
+
+
 
 
 class upload_queue:           #just move to read queue
@@ -51,6 +67,15 @@ class ready_queue:
         print(row) #for now just print the message
         cur.execute("update message_queue set reader_id=NULL, state = "+str(int(messagestate.done)) + " where message_id ='" + str(message_id) + "'")
         print("message moved to done queue")
+
+
+
+
+class request_response:
+    def __init__(self, rc, msg):
+        self.return_code = rc
+        self.message=msg
+
 
 
 
@@ -88,6 +113,24 @@ class storage_engine:
     def get_batch(self):
         cur = self.conn.cursor()
         cur.execute("update message_queue set reader_id='" + str(self.reader_id) + "' where state <"+ str(int( messagestate.done)) + " and reader_id is NULL")
+
+
+
+    def process_request(self, reqtype, request):
+        if (reqtype == requesttype.ping_engine):
+            ret= request_response(returncode.success,'all good')   #just return OK message for now
+            return ret
+        elif (reqtype == requesttype.stop_engine):
+            pass
+        elif (reqtype == requesttype.set_config):
+            pass
+        else:
+            pass  # do the default
+
+
+    def put_request(self,reqtype, request):
+        return self.process_request(reqtype,request)
+
 
 
 
@@ -139,93 +182,4 @@ class worker_thread(threading.Thread):
 
 
 
-
-async def main():
-
-
-
-
-
-
-        print("connecting to the database")
-
-        my_guid=uuid.uuid1()
-
-        try:
-            conn = psycopg2.connect("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'")
-            print("i have connected")
-
-            #now create table
-
-            cur = conn.cursor()
-            try:
-                cur.execute("drop table message_queue")
-            except:
-                conn.rollback()
-                print("ignore drop")
-
-            cur.execute("create table message_queue (message_id  serial primary key, state int, reader_id uuid, message_data bytea, create_time timestamp(6) with time zone NOT NULL DEFAULT now())")
-            print("table created")
-
-            # lets insert a message
-            for i in range(0,10):
-                cur.execute("insert into message_queue (state,reader_id,message_data) values(5,NULL,'blah')")
-
-            conn.commit()
-
-            # now mark rows that can get processed.
-            # single thread will select all rows which are in a ready state
-            cur.execute("update message_queue set reader_id='"+str(my_guid)+"' where state=6 and reader_id is NULL")
-
-
-            conn.commit()
-
-
-            # now grab the rows that belong to me
-            cur.execute("select message_id,state from message_queue where reader_id ='"+str(my_guid)+"'" )
-            for row in cur:
-                print("row: "+ str(row[0]))
-
-
-            #lets test the new message engine
-            store = storage()  #used to add message. this is api
-
-            store.put_message("blah1")
-            store.put_message("blah2")
-
-            se =storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'",store)
-
-            wt = worker_thread(se)
-            wt.start()
-
-            sleep(10)  #sleep for a while
-            print("Stopping queue engine")
-            wt.running=False
-
-            wt.join()  #wait for thread to end
-
-
-
-        except Exception as e:
-            print("Error: "+str(e))
-
-
-
-
-
-if __name__ == "__main__":
-
-    asyncio.get_event_loop().run_until_complete(main())
-
-
-
-
-
-
-
-
-
-
-
-print("all Done.");
 
