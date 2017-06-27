@@ -1,10 +1,11 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Pushes information stored in FogLAMP to OSI/OMF
 
-#
-# INTERNAL VERSION : v 1.0.0
-# IMPORTANT NOTE   : this version reads rows from the sensor_values_t_new table
-#
+INTERNAL VERSION : v 1.0.1
+IMPORTANT NOTE   : this version reads rows from the sensor_values_t_new table
+
+"""
+
 
 #
 # Import packages
@@ -13,183 +14,39 @@ import json
 import time
 import requests
 import datetime
-import string
-import random
-
-from subprocess import call
 
 #
-# Import packages - DB operations related
+# Import packages - DB operations
 #
 import asyncio
 import aiopg
 import aiopg.sa
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import and_
 
 
-#FIXME: change the values
+#
+# Constants
+#
 server_name    = "WIN-4M7ODKB0RH2"
 producer_token = "TI-test3"
 
-
-object_id       = "_n_15"
-sensor          = "TI SensorTag"   + object_id
+object_id       = "_n_19"
 sensor_location = "S.F."
-measurement     = "measurement"    + object_id
+sensor_id       = "TI SensorTag" + object_id
+measurement_id  = "measurement" + object_id
 
-type_id             = "15"
+type_id             = "19"
 type_measurement_id = "type_measurement_" + type_id
 type_object_id      = "type_object_id_"   + type_id
 
-
-#FIXME: tmp
-print (call(["uname", "-a"]))
-print ("DBG BRK 1")
-
 relay_url = "http://" + server_name  + ":8118/ingress/messages"
 
-# ************************************************************************
-def create_data_values_stream_message(target_stream_id, row):
-    """
-    Creates the data for OMF
+db_dsn = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
 
-    :param target_stream_id: containers
-    :param row:              row retrieved from the DB
-    """
-    data_values_JSON = ''
-    #timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
-    timestamp = row.created.utcnow().isoformat() + 'Z'
-
-    print("###  ######################################################################################################")
-    print ("OMF    : ", end="")
-    print ("ID {0} - {1}".format(target_stream_id, str(row.id) ) )
-
-    #sensor_data = json.loads (row.data)
-    sensor_data = row.data
-
-    try:
-        print("Data full  |{0}| ".format(sensor_data["asset"]))
-
-        value_x = 0
-        value_y = 0
-        value_z = 0
-
-        value_pressure = 0
-        value_lux = 0
-
-        value_humidity = 0
-        value_temperature = 0
-        value_object = 0
-        value_ambient = 0
-
-
-        ###  ######################################################################################################:
-        try:
-            value_x = sensor_data["sensor_values"]["x"]
-        except:
-            pass
-
-        try:
-            value_y = sensor_data["sensor_values"]["y"]
-        except:
-            pass
-
-        try:
-            value_z = sensor_data["sensor_values"]["z"]
-        except:
-            pass
-
-        try:
-            value_pressure = sensor_data["sensor_values"]["pressure"]
-        except:
-            pass
-
-        try:
-            value_lux = sensor_data["sensor_values"]["lux"]
-        except:
-            pass
-
-        try:
-            value_lux = sensor_data["sensor_values"]["humidity"]
-        except:
-            pass
-
-        try:
-            value_lux = sensor_data["sensor_values"]["temperature"]
-        except:
-            pass
-
-        try:
-            value_lux = sensor_data["sensor_values"]["object"]
-        except:
-            pass
-
-        try:
-            value_lux = sensor_data["sensor_values"]["ambient"]
-        except:
-            pass
-
-        ###  ######################################################################################################:
-
-
-        data_values_JSON = [
-            {
-                "containerid": target_stream_id,
-                "values": [
-                    {
-                        "Time": timestamp,
-                        "key": row.key,
-                        "x": value_x,
-                        "y": value_y,
-                        "z": value_z,
-                        "pressure": value_pressure,
-                        "lux": value_lux,
-
-                        "humidity": value_humidity,
-                        "temperature": value_temperature,
-                        "object": value_object,
-                        "ambient": value_ambient,
-
-                    }
-
-                ]
-            }
-        ]
-
-
-
-        print("Data   |{0}| ".format(data_values_JSON ) )
-    except:
-        print("WARNING : not asset data")
-
-    return data_values_JSON
-
-
-# ************************************************************************
-def sendOMFMessageToEndPoint(message_type, OMF_data):
-    try:
-        msg_header = {'producertoken': producer_token, 'messagetype': message_type, 'action': 'create',
-                      'messageformat': 'JSON', 'omfversion': '1.0'}
-        response = requests.post(relay_url, headers=msg_header, data=json.dumps(OMF_data), verify=False, timeout=30)
-        print('Response "{0}" message: {1} {2}'.format(message_type, response.status_code,
-                                                                                   response.text))
-    except Exception as e:
-        print(str(datetime.datetime.now()) + " An error ocurred during web request: " + str(e))
-
-def omf_message_update(message_type, OMF_data):
-    try:
-        msg_header = {'producertoken': producer_token, 'messagetype': message_type, 'action': 'update',
-                      'messageformat': 'JSON', 'omfversion': '1.0'}
-        response = requests.post(relay_url, headers=msg_header, data=json.dumps(OMF_data), verify=False, timeout=30)
-        print('Response "{0}" message: {1} {2}'.format(message_type, response.status_code,
-                                                       response.text))
-    except Exception as e:
-        print(str(datetime.datetime.now()) + " An error ocurred during web request: " + str(e))
-
-
-# ************************************************************************
+#
+# OSI/OMF objects definition
+#
 
 types = [
     {
@@ -253,7 +110,7 @@ types = [
 
 containers = [
     {
-    "id": measurement,
+    "id": measurement_id,
     "typeid": type_measurement_id
     }
 ]
@@ -262,7 +119,7 @@ containers = [
 staticData = [{
     "typeid": type_object_id,
     "values": [{
-        "Name": sensor,
+        "Name": sensor_id,
         "Location": sensor_location
     }]
 }]
@@ -277,65 +134,214 @@ linkData = [{
         },
         "target": {
             "typeid": type_object_id,
-            "index": sensor
+            "index": sensor_id
         }
     }, {
         "source": {
             "typeid": type_object_id,
-            "index": sensor
+            "index": sensor_id
         },
         "target": {
-            "containerid": measurement
+            "containerid": measurement_id
         }
 
     }]
 }]
 
-# dataValue = [{
-#        "containerid": measurement,
-#        "values": [{
-#                "Time": "2017-01-11T22:23:23.430Z",
-#                "keyA": "99.0",
-#                "keyB": "98.0"
-#        }]
-# }]
+
+def create_data_values_stream_message(target_stream_id, information_to_send):
+    """
+    Creates the data for OMF
+
+    :param target_stream_id:     container ID
+    :param information_to_send:  information retrieved from the DB that should be prepared
+    """
+
+    result = True
+
+    data_values_JSON = ''
+
+    sensor_data = information_to_send.data
+    row_key     = information_to_send.key
+    timestamp   = information_to_send.created.utcnow().isoformat() + 'Z'
+
+    #FIX ME:
+    print ("OMF    : ", end="")
+    print ("|{0}| - |{1}|".format(target_stream_id, str(information_to_send.id)))
+    print ("Sensor ID : |{0}| ".format(sensor_data["asset"]))
 
 
-requests.packages.urllib3.disable_warnings()
+    try:
+        value_x = 0
+        value_y = 0
+        value_z = 0
 
-### OMF Operations ######################################################################################################:
+        value_pressure = 0
+        value_lux = 0
 
-sendOMFMessageToEndPoint("Type", types)
+        value_humidity = 0
+        value_temperature = 0
+        value_object = 0
+        value_ambient = 0
 
-sendOMFMessageToEndPoint("Container", containers)
+        #
+        # Evaluates which data is available
+        #
+        try:
+            value_x = sensor_data["sensor_values"]["x"]
+        except:
+            pass
 
-sendOMFMessageToEndPoint("Type", types)
+        try:
+            value_y = sensor_data["sensor_values"]["y"]
+        except:
+            pass
 
-sendOMFMessageToEndPoint("Container", containers)
+        try:
+            value_z = sensor_data["sensor_values"]["z"]
+        except:
+            pass
 
-sendOMFMessageToEndPoint("Data", staticData)
+        try:
+            value_pressure = sensor_data["sensor_values"]["pressure"]
+        except:
+            pass
 
-sendOMFMessageToEndPoint("Data", linkData)
+        try:
+            value_lux = sensor_data["sensor_values"]["lux"]
+        except:
+            pass
+
+        try:
+            value_lux = sensor_data["sensor_values"]["humidity"]
+        except:
+            pass
+
+        try:
+            value_lux = sensor_data["sensor_values"]["temperature"]
+        except:
+            pass
+
+        try:
+            value_lux = sensor_data["sensor_values"]["object"]
+        except:
+            pass
+
+        try:
+            value_lux = sensor_data["sensor_values"]["ambient"]
+        except:
+            pass
 
 
-### DB Operations ######################################################################################################:
+        # Prepares the data for OMF
+        data_values_JSON = [
+            {
+                "containerid":         target_stream_id,
+                "values": [
+                    {
+                        "Time":        timestamp,
+                        "key":         row_key,
+
+                        "x":           value_x,
+                        "y":           value_y,
+                        "z":           value_z,
+                        "pressure":    value_pressure,
+                        "lux":         value_lux,
+                        "humidity":    value_humidity,
+                        "temperature": value_temperature,
+                        "object":      value_object,
+                        "ambient":     value_ambient,
+                    }
+                ]
+            }
+        ]
 
 
-def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
-    return ''.join(random.choice(chars) for _ in range(size))
+        print("Full data   |{0}| ".format(data_values_JSON ) )
+    except:
+        result = False
+        print("WARNING : not asset data")
+
+    return result, data_values_JSON
+
+
+def send_OMF_message_to_end_point(message_type, OMF_data):
+    """
+    Sends data for OMF
+
+    :param message_type: possible values - Type | Container | Data
+    :param OMF_data:     message to send
+    """
+
+    result = True
+    try:
+        msg_header = {'producertoken': producer_token,
+                      'messagetype': message_type,
+                      'action': 'create',
+                      'messageformat': 'JSON',
+                      'omfversion': '1.0'}
+
+        response = requests.post(relay_url, headers=msg_header, data=json.dumps(OMF_data), verify=False, timeout=30)
+
+        print('Response "{0}" message: {1} {2}'.format(message_type,
+                                                       response.status_code,
+                                                       response.text))
+
+    except Exception as e:
+        result = False
+        print(str(datetime.datetime.now()) + " An error occurred during web request: " + str(e))
+
+
+    return result
 
 def position_read():
+    """
+    #FIX ME: TB implemented
+    Retrieves the starting point for the operation, DB column id.
+    """
     #return '3947'
     return '4012'
 
 
 def position_update():
+    """
+    #FIX ME: TB implemented
+    Updates the handled position, DB column id.
+    """
     pass
 
-async def db_read ():
-    dsn = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
 
-    metadata = sa.MetaData()
+
+#
+# MAIN
+#
+
+#FIX ME:
+#requests.packages.urllib3.disable_warnings()
+
+#
+# OMF Operations
+#
+
+send_OMF_message_to_end_point("Type", types)
+
+send_OMF_message_to_end_point("Container", containers)
+
+send_OMF_message_to_end_point("Type", types)
+
+send_OMF_message_to_end_point("Container", containers)
+
+send_OMF_message_to_end_point("Data", staticData)
+
+send_OMF_message_to_end_point("Data", linkData)
+
+
+#
+# DB Operations
+#
+async def send_info_to_OMF ():
+
+    row = ""
 
     _sensor_values_tbl = sa.Table(
         'sensor_values_t_new',
@@ -346,26 +352,36 @@ async def db_read ():
         sa.Column('data', JSONB))
     """Defines the table that data will be inserted into"""
 
-    async with aiopg.sa.create_engine (dsn) as engine:
-        async with engine.acquire() as conn:
-            await conn.execute(_sensor_values_tbl.insert().values(key=id_generator(10)))
 
-            print ("DBG 1")
+    async with aiopg.sa.create_engine (db_dsn) as engine:
+        async with engine.acquire() as conn:
+
             position = position_read()
 
+            # Reads the rows from the DB and sends to OMF
             async for row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id >= position)):
+
+                # FIX ME: to be removed, only for dev
+                print("###  ######################################################################################################")
                 print("DB ROW : " ,end="")
                 print(row.id, row.created, row.key, row.data,  )
 
-                # Load data into OMS
-                values = create_data_values_stream_message(measurement, row )
-                sendOMFMessageToEndPoint("Data", values)
+                #FIX ME: to be removed, only for dev
                 time.sleep(1)
 
+                # Loads data into OMS
+                result, values = create_data_values_stream_message(measurement_id, row)
+                if result == True:
+                    send_OMF_message_to_end_point("Data", values)
+
+            #FIX ME:
+            print(
+            "###  ######################################################################################################")
             print("LAST POSITION " + str(row.id) )
             #position = position_read(row.id)
 
 
-
+#FIX ME: to be removed, only for dev
 time.sleep(1)
-asyncio.get_event_loop().run_until_complete(db_read())
+
+asyncio.get_event_loop().run_until_complete(send_info_to_OMF())
