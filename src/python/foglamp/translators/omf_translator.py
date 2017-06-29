@@ -1,9 +1,32 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Pushes information stored in FogLAMP to OSI/OMF
 
-INTERNAL VERSION : v 1.0.1
-IMPORTANT NOTE   : this version reads rows from the sensor_values_t_new table
+""" Pushes information stored in FogLAMP into OSI/OMF
+The information are sent in chunks,
+the table foglamp.omf_trans_position and the constant block_size are used for this handling
 
+INTERNAL VERSION : v 1.0.4
+
+NOTE   :
+    - this version reads rows from the foglamp.readings table - Latest FogLAMP code
+    - it uses foglamp.omf_trans_position to track the information to send
+    - block_size (currently at 5) identifies the number of rows to send for each execution
+
+#FIXME:
+    - only part of the code is using async and SA
+    - there are some time.sleep for development purpose
+
+    - Temporary SQL code used for dev :
+        create table foglamp.omf_trans_position
+        (
+            id bigint
+        );
+
+        TRUNCATE TABLE foglamp.omf_trans_position;
+        INSERT INTO foglamp.omf_trans_position (id) VALUES (666);
+
+        UPDATE foglamp.omf_trans_position SET id=666;
+        SELECT * FROM foglamp.omf_trans_position;
 """
 
 
@@ -14,10 +37,12 @@ import json
 import time
 import requests
 import datetime
+import sys
 
 #
 # Import packages - DB operations
 #
+import psycopg2
 import asyncio
 import aiopg
 import aiopg.sa
@@ -29,146 +54,53 @@ from sqlalchemy.dialects.postgresql import JSONB
 # Constants
 #
 server_name    = "WIN-4M7ODKB0RH2"
-producer_token = "TI-test3"
+producer_token = "omf_translator_3"
 
-object_id       = "_n_19"
 sensor_location = "S.F."
-sensor_id       = "TI SensorTag" + object_id
-measurement_id  = "measurement" + object_id
 
-type_id             = "19"
-type_measurement_id = "type_measurement_" + type_id
-type_object_id      = "type_object_id_"   + type_id
+type_id             = "3"
+type_measurement_id = "omf_trans_type_measurement_" + type_id
+type_object_id      = "omf_trans_type_object_id_"   + type_id
 
 relay_url = "http://" + server_name  + ":8118/ingress/messages"
 
-db_dsn = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
-
-#
-# OSI/OMF objects definition
-#
-
-types = [
-    {
-        "id": type_object_id,
-        "type": "object",
-        "classification": "static",
-        "properties": {
-            "Name": {
-                "type": "string",
-                "isindex": True
-            },
-            "Location": {
-                "type": "string"
-            }
-        }
-    },
-    {
-        "id": type_measurement_id,
-        "type": "object",
-        "classification": "dynamic",
-        "properties": {
-            "Time": {
-                "format": "date-time",
-                "type": "string",
-                "isindex": True
-            },
-            "key": {
-                "type": "string"
-            },
-            "x": {
-                "type": "number"
-            },
-            "y": {
-                "type": "number"
-            },
-            "z": {
-                "type": "number"
-            },
-            "pressure": {
-                "type": "integer"
-            },
-            "lux": {
-                "type": "integer"
-            },
-            "humidity": {
-                "type": "number"
-            },
-            "temperature": {
-                "type": "number"
-            },
-            "object": {
-                "type": "number"
-            },
-            "ambient": {
-                "type": "number"
-            }
-
-        }
-    }
-]
-
-containers = [
-    {
-    "id": measurement_id,
-    "typeid": type_measurement_id
-    }
-]
+# DB rekated
+#FIXME: port=5432'
+db_dsn     = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
+block_size = 5
+#FIXME: TBD
+db_dsn_sa  = 'postgresql://foglamp:foglamp@localhost:5432/foglamp'
 
 
-staticData = [{
-    "typeid": type_object_id,
-    "values": [{
-        "Name": sensor_id,
-        "Location": sensor_location
-    }]
-}]
-
-
-linkData = [{
-    "typeid": "__Link",
-    "values": [{
-        "source": {
-            "typeid": type_object_id,
-            "index": "_ROOT"
-        },
-        "target": {
-            "typeid": type_object_id,
-            "index": sensor_id
-        }
-    }, {
-        "source": {
-            "typeid": type_object_id,
-            "index": sensor_id
-        },
-        "target": {
-            "containerid": measurement_id
-        }
-
-    }]
-}]
+# Global variables
+conn = ""
+cur  = ""
 
 
 def create_data_values_stream_message(target_stream_id, information_to_send):
     """
     Creates the data for OMF
 
-    :param target_stream_id:     container ID
+    :param target_stream_id:     OMF container ID
     :param information_to_send:  information retrieved from the DB that should be prepared
     """
 
-    result = True
+    status = True
+    data_available = False
 
     data_values_JSON = ''
 
-    sensor_data = information_to_send.data
-    row_key     = information_to_send.key
-    timestamp   = information_to_send.created.utcnow().isoformat() + 'Z'
+    row_id      = information_to_send.id
+    row_key     = information_to_send.read_key
+    asset_code  = information_to_send.asset_code
+    timestamp   = information_to_send.user_ts.isoformat() + 'Z'
+    sensor_data = information_to_send.reading
+
 
     #FIX ME:
     print ("OMF    : ", end="")
-    print ("|{0}| - |{1}|".format(target_stream_id, str(information_to_send.id)))
-    print ("Sensor ID : |{0}| ".format(sensor_data["asset"]))
+    print ("|{0}| - |{1}|".format(target_stream_id, str(row_id)))
+    print ("Sensor ID : |{0}| ".format(asset_code))
 
 
     try:
@@ -188,81 +120,94 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
         # Evaluates which data is available
         #
         try:
-            value_x = sensor_data["sensor_values"]["x"]
+            value_x = sensor_data["x"]
+            data_available = True
         except:
             pass
 
         try:
-            value_y = sensor_data["sensor_values"]["y"]
+            value_y = sensor_data["y"]
+            data_available = True
         except:
             pass
 
         try:
-            value_z = sensor_data["sensor_values"]["z"]
+            value_z = sensor_data["z"]
+            data_available = True
         except:
             pass
 
         try:
-            value_pressure = sensor_data["sensor_values"]["pressure"]
+            value_pressure = sensor_data["pressure"]
+            data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["sensor_values"]["lux"]
+            value_lux = sensor_data["lux"]
+            data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["sensor_values"]["humidity"]
+            value_lux = sensor_data["humidity"]
+            data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["sensor_values"]["temperature"]
+            value_lux = sensor_data["temperature"]
+            data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["sensor_values"]["object"]
+            value_lux = sensor_data["object"]
+            data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["sensor_values"]["ambient"]
+            value_lux = sensor_data["ambient"]
+            data_available = True
         except:
             pass
 
+        if data_available == True:
+            # Prepares the data for OMF
+            data_values_JSON = [
+                {
+                    "containerid":         target_stream_id,
+                    "values": [
+                        {
+                            "Time":        timestamp,
+                            "key":         row_key,
 
-        # Prepares the data for OMF
-        data_values_JSON = [
-            {
-                "containerid":         target_stream_id,
-                "values": [
-                    {
-                        "Time":        timestamp,
-                        "key":         row_key,
+                            "x":           value_x,
+                            "y":           value_y,
+                            "z":           value_z,
+                            "pressure":    value_pressure,
+                            "lux":         value_lux,
+                            "humidity":    value_humidity,
+                            "temperature": value_temperature,
+                            "object":      value_object,
+                            "ambient":     value_ambient,
+                        }
+                    ]
+                }
+            ]
 
-                        "x":           value_x,
-                        "y":           value_y,
-                        "z":           value_z,
-                        "pressure":    value_pressure,
-                        "lux":         value_lux,
-                        "humidity":    value_humidity,
-                        "temperature": value_temperature,
-                        "object":      value_object,
-                        "ambient":     value_ambient,
-                    }
-                ]
-            }
-        ]
+            print("Full data   |{0}| ".format(data_values_JSON))
+        else:
+            status = False
+            print("WARNING : not asset data")
 
 
-        print("Full data   |{0}| ".format(data_values_JSON ) )
     except:
-        result = False
+        status = False
         print("WARNING : not asset data")
 
-    return result, data_values_JSON
+    return status, data_values_JSON
 
 
 def send_OMF_message_to_end_point(message_type, OMF_data):
@@ -273,7 +218,7 @@ def send_OMF_message_to_end_point(message_type, OMF_data):
     :param OMF_data:     message to send
     """
 
-    result = True
+    status = True
     try:
         msg_header = {'producertoken': producer_token,
                       'messagetype': message_type,
@@ -288,29 +233,192 @@ def send_OMF_message_to_end_point(message_type, OMF_data):
                                                        response.text))
 
     except Exception as e:
-        result = False
+        status = False
         print(str(datetime.datetime.now()) + " An error occurred during web request: " + str(e))
 
 
-    return result
+    return status
 
 def position_read():
     """
-    #FIX ME: TB implemented
     Retrieves the starting point for the operation, DB column id.
+
+    #FIXME: it should evolve using SA/ASYNC
     """
-    #return '3947'
-    return '4012'
+
+    global conn
+    global cur
+
+    status    = True
+    position  = 0
+
+    try:
+        sql_cmd = "SELECT id FROM foglamp.omf_trans_position"
 
 
-def position_update():
+        cur.execute (sql_cmd)
+        rows = cur.fetchall()
+        for row in rows:
+            position = row[0]
+            print ("ROW Position {:>10,} : ". format (row[0]))
+    except:
+        status = False
+
+    return status, position
+
+
+
+
+def position_update(new_position):
     """
-    #FIX ME: TB implemented
     Updates the handled position, DB column id.
+
+    :param new_position:  Last row already sent to OMF
+
+    #FIXME: it should evolve using SA/ASYNC
     """
-    pass
+
+    status    = True
+
+    try:
+        conn = psycopg2.connect(db_dsn)
+        cur = conn.cursor()
+
+        sql_cmd  = "UPDATE foglamp.omf_trans_position SET id={0}".format(new_position )
+        cur.execute(sql_cmd)
+
+        conn.commit()
+    except:
+        status = False
+
+    return status
+
+def OMF_types_creation ():
+    """
+    Creates the type into OMF
+    """
+    status = True
+
+    types = [
+        {
+            "id": type_object_id,
+            "type": "object",
+            "classification": "static",
+            "properties": {
+                "Name": {
+                    "type": "string",
+                    "isindex": True
+                },
+                "Location": {
+                    "type": "string"
+                }
+            }
+        },
+        {
+            "id": type_measurement_id,
+            "type": "object",
+            "classification": "dynamic",
+            "properties": {
+                "Time": {
+                    "format": "date-time",
+                    "type": "string",
+                    "isindex": True
+                },
+                "key": {
+                    "type": "string"
+                },
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                },
+                "z": {
+                    "type": "number"
+                },
+                "pressure": {
+                    "type": "integer"
+                },
+                "lux": {
+                    "type": "integer"
+                },
+                "humidity": {
+                    "type": "number"
+                },
+                "temperature": {
+                    "type": "number"
+                },
+                "object": {
+                    "type": "number"
+                },
+                "ambient": {
+                    "type": "number"
+                }
+
+            }
+        }
+    ]
 
 
+    status = send_OMF_message_to_end_point("Type", types)
+
+    return status
+
+
+def OMF_object_creation ():
+    """
+    Creates the object into OMF
+    """
+
+    # OSI/OMF objects definition
+    containers = [
+        {
+            "id": measurement_id,
+            "typeid": type_measurement_id
+        }
+    ]
+
+    staticData = [{
+        "typeid": type_object_id,
+        "values": [{
+            "Name": sensor_id,
+            "Location": sensor_location
+        }]
+    }]
+
+    linkData = [{
+        "typeid": "__Link",
+        "values": [{
+            "source": {
+                "typeid": type_object_id,
+                "index": "_ROOT"
+            },
+            "target": {
+                "typeid": type_object_id,
+                "index": sensor_id
+            }
+        }, {
+            "source": {
+                "typeid": type_object_id,
+                "index": sensor_id
+            },
+            "target": {
+                "containerid": measurement_id
+            }
+
+        }]
+    }]
+
+
+    status = send_OMF_message_to_end_point("Container", containers)
+
+    if status == True:
+        status = send_OMF_message_to_end_point("Data", staticData)
+
+    if status == True:
+        status = send_OMF_message_to_end_point("Data", linkData)
+
+    return status
 
 #
 # MAIN
@@ -322,63 +430,73 @@ def position_update():
 #
 # OMF Operations
 #
-
-send_OMF_message_to_end_point("Type", types)
-
-send_OMF_message_to_end_point("Container", containers)
-
-send_OMF_message_to_end_point("Type", types)
-
-send_OMF_message_to_end_point("Container", containers)
-
-send_OMF_message_to_end_point("Data", staticData)
-
-send_OMF_message_to_end_point("Data", linkData)
-
+OMF_types_creation ()
 
 #
 # DB Operations
 #
 async def send_info_to_OMF ():
 
-    row = ""
+    global conn
+    global cur
+
+    global object_id
+    global sensor_id
+    global measurement_id
+
+
+    db_row = ""
+
+    conn = psycopg2.connect(db_dsn)
+    cur = conn.cursor()
 
     _sensor_values_tbl = sa.Table(
-        'sensor_values_t_new',
+        'readings',
         sa.MetaData(),
         sa.Column('id', sa.BigInteger, primary_key=True),
-        sa.Column('created', sa.types.DATETIME),
-        sa.Column('key', sa.types.VARCHAR(50)),
-        sa.Column('data', JSONB))
+        sa.Column('asset_code', sa.types.VARCHAR(50)),
+        sa.Column('read_key', sa.types.VARCHAR(50)),
+        sa.Column('user_ts', sa.types.TIMESTAMP),
+        sa.Column('reading', JSONB))
     """Defines the table that data will be inserted into"""
-
 
     async with aiopg.sa.create_engine (db_dsn) as engine:
         async with engine.acquire() as conn:
 
-            position = position_read()
+            status, position = position_read()
+
+            print("LAST POSITION ALREDY SENT" + str (position) )
 
             # Reads the rows from the DB and sends to OMF
-            async for row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id >= position)):
+            async for db_row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id > position).limit(block_size).order_by(_sensor_values_tbl.c.id) ):
+
+                print( "###  ######################################################################################################")
+
+                # Identification of the object/sensor
+                object_id      = db_row.asset_code
+                sensor_id      = "sensor_"      + object_id
+                measurement_id = "measurement_" + object_id
+
+                OMF_object_creation ()
 
                 # FIX ME: to be removed, only for dev
-                print("###  ######################################################################################################")
+
                 print("DB ROW : " ,end="")
-                print(row.id, row.created, row.key, row.data,  )
+                print(db_row.id, db_row.user_ts, db_row.read_key, db_row.reading,  )
 
                 #FIX ME: to be removed, only for dev
                 time.sleep(1)
 
                 # Loads data into OMS
-                result, values = create_data_values_stream_message(measurement_id, row)
-                if result == True:
+                status, values = create_data_values_stream_message(measurement_id, db_row)
+                if status == True:
                     send_OMF_message_to_end_point("Data", values)
 
             #FIX ME:
-            print(
-            "###  ######################################################################################################")
-            print("LAST POSITION " + str(row.id) )
-            #position = position_read(row.id)
+            print("###  ######################################################################################################")
+            new_position = db_row.id
+            print("LAST POSITION SENT " + str(new_position) )
+            status = position_update (new_position)
 
 
 #FIX ME: to be removed, only for dev
