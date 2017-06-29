@@ -5,17 +5,13 @@
 The information are sent in chunks,
 the table foglamp.omf_trans_position and the constant block_size are used for this handling
 
-INTERNAL VERSION : v 1.0.4
-
 NOTE   :
     - this version reads rows from the foglamp.readings table - Latest FogLAMP code
     - it uses foglamp.omf_trans_position to track the information to send
-    - block_size (currently at 5) identifies the number of rows to send for each execution
+    - block_size identifies the number of rows to send for each execution
 
 #FIXME:
     - only part of the code is using async and SA
-    - there are some time.sleep for development purpose
-
     - Temporary SQL code used for dev :
         create table foglamp.omf_trans_position
         (
@@ -49,16 +45,26 @@ import aiopg.sa
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
+#
+# Module information
+#
+PRG_NAME          = "OMF Translator"
+PRG_VERSION       = "1.0.05"
+PRG_STAGE         = "dev"                  # dev/rel
+PRG_TEXT          = ", for Linux (x86_64)"
+PRG_COMPANY       = "2017 DB SOFTWARE INC."
+
 
 #
 # Constants
 #
 server_name    = "WIN-4M7ODKB0RH2"
-producer_token = "omf_translator_3"
+producer_token = "omf_translator_17"
+
 
 sensor_location = "S.F."
 
-type_id             = "3"
+type_id             = "1"
 type_measurement_id = "omf_trans_type_measurement_" + type_id
 type_object_id      = "omf_trans_type_object_id_"   + type_id
 
@@ -67,14 +73,34 @@ relay_url = "http://" + server_name  + ":8118/ingress/messages"
 # DB rekated
 #FIXME: port=5432'
 db_dsn     = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
-block_size = 5
+
+block_size = 10
+#block_size = 500
 #FIXME: TBD
 db_dsn_sa  = 'postgresql://foglamp:foglamp@localhost:5432/foglamp'
 
-
+#
 # Global variables
+#
+#
 conn = ""
 cur  = ""
+
+#
+# Functions
+#
+def msg_write( severityMessage,
+               message
+               ):
+    """
+    Writes a message on the screen
+    """
+
+    print ("{0:} - {1:<7} - {2} ".format(time.strftime("%Y-%m-%d %H:%M:%S:"), severityMessage ,message) )
+
+
+
+    return
 
 
 def create_data_values_stream_message(target_stream_id, information_to_send):
@@ -98,114 +124,94 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
 
 
     #FIX ME:
-    print ("OMF    : ", end="")
-    print ("|{0}| - |{1}|".format(target_stream_id, str(row_id)))
-    print ("Sensor ID : |{0}| ".format(asset_code))
 
+    msg_write("INFO", "Stream ID : |{0}| ".format(target_stream_id))
+    msg_write("INFO", "Sensor ID : |{0}| ".format(asset_code))
+    msg_write("INFO", "Row    ID : |{0}| ".format(str(row_id)))
 
     try:
-        value_x = 0
-        value_y = 0
-        value_z = 0
-
-        value_pressure = 0
-        value_lux = 0
-
-        value_humidity = 0
-        value_temperature = 0
-        value_object = 0
-        value_ambient = 0
+        # Prepares the data for OMF
+        data_values_JSON = [
+            {
+                "containerid": target_stream_id,
+                "values": [
+                    {
+                        "Time": timestamp,
+                        "key": row_key
+                    }
+                ]
+            }
+        ]
 
         #
         # Evaluates which data is available
         #
         try:
-            value_x = sensor_data["x"]
+            data_values_JSON[0]["values"][0]["x"] = sensor_data["x"]
             data_available = True
         except:
             pass
 
         try:
-            value_y = sensor_data["y"]
+            data_values_JSON[0]["values"][0]["Y"] = sensor_data["y"]
             data_available = True
         except:
             pass
 
         try:
-            value_z = sensor_data["z"]
+            data_values_JSON[0]["values"][0]["z"] = sensor_data["z"]
             data_available = True
         except:
             pass
 
         try:
-            value_pressure = sensor_data["pressure"]
+            data_values_JSON[0]["values"][0]["pressure"] = sensor_data["pressure"]
             data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["lux"]
+            data_values_JSON[0]["values"][0]["lux"] = sensor_data["lux"]
             data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["humidity"]
+            data_values_JSON[0]["values"][0]["humidity"] = sensor_data["humidity"]
             data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["temperature"]
+            data_values_JSON[0]["values"][0]["temperature"] = sensor_data["temperature"]
             data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["object"]
+            data_values_JSON[0]["values"][0]["object"] = sensor_data["object"]
             data_available = True
         except:
             pass
 
         try:
-            value_lux = sensor_data["ambient"]
+            data_values_JSON[0]["values"][0]["ambient"] = sensor_data["ambient"]
             data_available = True
         except:
             pass
 
         if data_available == True:
-            # Prepares the data for OMF
-            data_values_JSON = [
-                {
-                    "containerid":         target_stream_id,
-                    "values": [
-                        {
-                            "Time":        timestamp,
-                            "key":         row_key,
+            msg_write("INFO", "Full data   |{0}| ".format(data_values_JSON))
 
-                            "x":           value_x,
-                            "y":           value_y,
-                            "z":           value_z,
-                            "pressure":    value_pressure,
-                            "lux":         value_lux,
-                            "humidity":    value_humidity,
-                            "temperature": value_temperature,
-                            "object":      value_object,
-                            "ambient":     value_ambient,
-                        }
-                    ]
-                }
-            ]
-
-            print("Full data   |{0}| ".format(data_values_JSON))
         else:
             status = False
-            print("WARNING : not asset data")
+            msg_write("WARNING ", "not asset data")
+
 
 
     except:
         status = False
-        print("WARNING : not asset data")
+        msg_write("WARNING ", "not asset data")
 
     return status, data_values_JSON
 
@@ -228,14 +234,15 @@ def send_OMF_message_to_end_point(message_type, OMF_data):
 
         response = requests.post(relay_url, headers=msg_header, data=json.dumps(OMF_data), verify=False, timeout=30)
 
-        print('Response "{0}" message: {1} {2}'.format(message_type,
-                                                       response.status_code,
-                                                       response.text))
+        msg_write("INFO", "Response |{0}| message: |{1}| |{2}| ".format(message_type,
+                                                                        response.status_code,
+                                                                        response.text))
+
 
     except Exception as e:
         status = False
-        print(str(datetime.datetime.now()) + " An error occurred during web request: " + str(e))
-
+        msg_write("ERROR ", "An error occurred during web request: {0}". format (e) )
+        
 
     return status
 
@@ -260,7 +267,8 @@ def position_read():
         rows = cur.fetchall()
         for row in rows:
             position = row[0]
-            print ("ROW Position {:>10,} : ". format (row[0]))
+            msg_write("INFO", "DB row position |{0}| : ". format (row[0]))
+
     except:
         status = False
 
@@ -423,6 +431,9 @@ def OMF_object_creation ():
 #
 # MAIN
 #
+start_message    = "\n" + PRG_NAME + " - Ver " + PRG_VERSION + "" + PRG_TEXT + "\n" + PRG_COMPANY + "\n"
+print (start_message)
+
 
 #FIX ME:
 #requests.packages.urllib3.disable_warnings()
@@ -465,41 +476,40 @@ async def send_info_to_OMF ():
 
             status, position = position_read()
 
-            print("LAST POSITION ALREDY SENT" + str (position) )
+            msg_write("INFO", "Last position, already sent |{0}| ".format (str (position))  )
 
             # Reads the rows from the DB and sends to OMF
             async for db_row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id > position).limit(block_size).order_by(_sensor_values_tbl.c.id) ):
 
-                print( "###  ######################################################################################################")
+                message =  "### sensor information ######################################################################################################"
+                msg_write("INFO", "{0}".format(message) )
 
                 # Identification of the object/sensor
                 object_id      = db_row.asset_code
-                sensor_id      = "sensor_"      + object_id
+                sensor_id      = object_id
                 measurement_id = "measurement_" + object_id
 
                 OMF_object_creation ()
 
                 # FIX ME: to be removed, only for dev
 
-                print("DB ROW : " ,end="")
-                print(db_row.id, db_row.user_ts, db_row.read_key, db_row.reading,  )
-
-                #FIX ME: to be removed, only for dev
-                time.sleep(1)
+                msg_write("INFO", "db row |{0}| |{1}| |{2}| |{3}| ".format(db_row.id, db_row.user_ts, db_row.read_key, db_row.reading  ))
 
                 # Loads data into OMS
                 status, values = create_data_values_stream_message(measurement_id, db_row)
                 if status == True:
                     send_OMF_message_to_end_point("Data", values)
 
-            #FIX ME:
-            print("###  ######################################################################################################")
-            new_position = db_row.id
-            print("LAST POSITION SENT " + str(new_position) )
-            status = position_update (new_position)
+            message = "### completed ######################################################################################################"
+            msg_write("INFO", "{0}".format(message))
 
+            try:
+                new_position = db_row.id
+                msg_write("INFO", "Last position, sent |{0}| ".format(str(new_position)))
 
-#FIX ME: to be removed, only for dev
-time.sleep(1)
+                status = position_update (new_position)
+            except:
+                pass
+
 
 asyncio.get_event_loop().run_until_complete(send_info_to_OMF())
