@@ -13,17 +13,20 @@ NOTE   :
 #FIXME:
     - only part of the code is using async and SA
     - Temporary SQL code used for dev :
-        create table foglamp.omf_trans_position
-        (
-            id bigint
-        );
 
-        TRUNCATE TABLE foglamp.omf_trans_position;
-        INSERT INTO foglamp.omf_trans_position (id) VALUES (666);
+        INSERT INTO foglamp.destinations (id,description, ts ) VALUES (1,'OMF', now() );
 
-        UPDATE foglamp.omf_trans_position SET id=666;
-        SELECT * FROM foglamp.omf_trans_position;
+        INSERT INTO foglamp.streams (id,destination_id,description, reading_id,ts ) VALUES (1,1,'OMF', 666,now());
+
+        SELECT * FROM foglamp.streams;
+
+        SELECT * FROM foglamp.destinations;
+
+        UPDATE foglamp.streams SET reading_id=4194 WHERE id=1;
+
+
 """
+
 
 
 #
@@ -49,35 +52,39 @@ from sqlalchemy.dialects.postgresql import JSONB
 # Module information
 #
 PRG_NAME          = "OMF Translator"
-PRG_VERSION       = "1.0.05"
+PRG_VERSION       = "1.0.09"
 PRG_STAGE         = "dev"                  # dev/rel
 PRG_TEXT          = ", for Linux (x86_64)"
 PRG_COMPANY       = "2017 DB SOFTWARE INC."
 
-
 #
-# Constants
+# Global Constants
 #
-server_name    = "WIN-4M7ODKB0RH2"
-producer_token = "omf_translator_17"
+#
 
-
+# Object's attributes
 sensor_location = "S.F."
 
-type_id             = "1"
+# Types definitions
+type_id             = "3"
 type_measurement_id = "omf_trans_type_measurement_" + type_id
 type_object_id      = "omf_trans_type_object_id_"   + type_id
 
-relay_url = "http://" + server_name  + ":8118/ingress/messages"
+# PI Server references
+server_name    = ""
+relay_url      = ""
+producer_token = ""
 
-# DB rekated
+# OMFTypes
+types = ""
+
+# DB references
 #FIXME: port=5432'
 db_dsn     = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
 
+# Handling the information in chunks
 block_size = 10
-#block_size = 500
-#FIXME: TBD
-db_dsn_sa  = 'postgresql://foglamp:foglamp@localhost:5432/foglamp'
+#block_size = 100
 
 #
 # Global variables
@@ -89,6 +96,98 @@ cur  = ""
 #
 # Functions
 #
+def plugin_initialize():
+    """
+    Initialise the OMF plugin for the sending of blocks of readings to the PI Connector.
+
+    Retrieves the configuration for :
+        URL           - The URL of the PI Connector to send data to.
+        producerToken - The producer token that represents this FogLAMP stream
+        OMFTypes      - A JSON object that contains the OMF type definitions for this stream
+
+
+    """
+
+    global server_name
+    global relay_url
+    global producer_token
+    global types
+
+    status = True
+
+    try:
+        # URL
+        server_name = "WIN-4M7ODKB0RH2"
+        relay_url = "http://" + server_name + ":8118/ingress/messages"
+
+        # producerToken
+        producer_token = "omf_translator_33"
+
+        # OMFTypes
+        types = [
+            {
+                "id": type_object_id,
+                "type": "object",
+                "classification": "static",
+                "properties": {
+                    "Name": {
+                        "type": "string",
+                        "isindex": True
+                    },
+                    "Location": {
+                        "type": "string"
+                    }
+                }
+            },
+            {
+                "id": type_measurement_id,
+                "type": "object",
+                "classification": "dynamic",
+                "properties": {
+                    "Time": {
+                        "format": "date-time",
+                        "type": "string",
+                        "isindex": True
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "x": {
+                        "type": "number"
+                    },
+                    "y": {
+                        "type": "number"
+                    },
+                    "z": {
+                        "type": "number"
+                    },
+                    "pressure": {
+                        "type": "integer"
+                    },
+                    "lux": {
+                        "type": "integer"
+                    },
+                    "humidity": {
+                        "type": "number"
+                    },
+                    "temperature": {
+                        "type": "number"
+                    },
+                    "object": {
+                        "type": "number"
+                    },
+                    "ambient": {
+                        "type": "number"
+                    }
+
+                }
+            }
+        ]
+    except:
+        status = False
+
+    return status
+
 def msg_write( severityMessage,
                message
                ):
@@ -119,11 +218,10 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
     row_id      = information_to_send.id
     row_key     = information_to_send.read_key
     asset_code  = information_to_send.asset_code
-    timestamp   = information_to_send.user_ts.isoformat() + 'Z'
+    #FIXME:
+    #timestamp   = information_to_send.user_ts.isoformat() + 'Z'
+    timestamp   = information_to_send.user_ts.isoformat()
     sensor_data = information_to_send.reading
-
-
-    #FIX ME:
 
     msg_write("INFO", "Stream ID : |{0}| ".format(target_stream_id))
     msg_write("INFO", "Sensor ID : |{0}| ".format(asset_code))
@@ -200,8 +298,10 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
         except:
             pass
 
+
+
         if data_available == True:
-            msg_write("INFO", "Full data   |{0}| ".format(data_values_JSON))
+            msg_write("INFO", "OMF Message   |{0}| ".format(data_values_JSON))
 
         else:
             status = False
@@ -250,7 +350,7 @@ def position_read():
     """
     Retrieves the starting point for the operation, DB column id.
 
-    #FIXME: it should evolve using SA/ASYNC
+    #FIXME: it should evolve using SA
     """
 
     global conn
@@ -260,7 +360,7 @@ def position_read():
     position  = 0
 
     try:
-        sql_cmd = "SELECT id FROM foglamp.omf_trans_position"
+        sql_cmd = "SELECT reading_id FROM foglamp.streams WHERE id=1"
 
 
         cur.execute (sql_cmd)
@@ -283,7 +383,7 @@ def position_update(new_position):
 
     :param new_position:  Last row already sent to OMF
 
-    #FIXME: it should evolve using SA/ASYNC
+    #FIXME: it should evolve using SA
     """
 
     status    = True
@@ -292,7 +392,7 @@ def position_update(new_position):
         conn = psycopg2.connect(db_dsn)
         cur = conn.cursor()
 
-        sql_cmd  = "UPDATE foglamp.omf_trans_position SET id={0}".format(new_position )
+        sql_cmd = "UPDATE foglamp.streams SET reading_id={0}  WHERE id=1".format(new_position)
         cur.execute(sql_cmd)
 
         conn.commit()
@@ -303,70 +403,11 @@ def position_update(new_position):
 
 def OMF_types_creation ():
     """
-    Creates the type into OMF
+    Creates the types into OMF
     """
+    global types
+
     status = True
-
-    types = [
-        {
-            "id": type_object_id,
-            "type": "object",
-            "classification": "static",
-            "properties": {
-                "Name": {
-                    "type": "string",
-                    "isindex": True
-                },
-                "Location": {
-                    "type": "string"
-                }
-            }
-        },
-        {
-            "id": type_measurement_id,
-            "type": "object",
-            "classification": "dynamic",
-            "properties": {
-                "Time": {
-                    "format": "date-time",
-                    "type": "string",
-                    "isindex": True
-                },
-                "key": {
-                    "type": "string"
-                },
-                "x": {
-                    "type": "number"
-                },
-                "y": {
-                    "type": "number"
-                },
-                "z": {
-                    "type": "number"
-                },
-                "pressure": {
-                    "type": "integer"
-                },
-                "lux": {
-                    "type": "integer"
-                },
-                "humidity": {
-                    "type": "number"
-                },
-                "temperature": {
-                    "type": "number"
-                },
-                "object": {
-                    "type": "number"
-                },
-                "ambient": {
-                    "type": "number"
-                }
-
-            }
-        }
-    ]
-
 
     status = send_OMF_message_to_end_point("Type", types)
 
@@ -375,8 +416,16 @@ def OMF_types_creation ():
 
 def OMF_object_creation ():
     """
-    Creates the object into OMF
+    Creates an object into OMF
     """
+
+    global sensor_location
+    global sensor_id
+    global measurement_id
+
+    global type_measurement_id
+    global type_object_id
+
 
     # OSI/OMF objects definition
     containers = [
@@ -428,30 +477,15 @@ def OMF_object_creation ():
 
     return status
 
-#
-# MAIN
-#
-start_message    = "\n" + PRG_NAME + " - Ver " + PRG_VERSION + "" + PRG_TEXT + "\n" + PRG_COMPANY + "\n"
-print (start_message)
 
-
-#FIX ME:
-#requests.packages.urllib3.disable_warnings()
-
-#
-# OMF Operations
-#
-OMF_types_creation ()
-
-#
-# DB Operations
-#
 async def send_info_to_OMF ():
+    """
+    Reads the information from the DB and it sends to OMF
+    """
 
     global conn
     global cur
 
-    global object_id
     global sensor_id
     global measurement_id
 
@@ -479,7 +513,10 @@ async def send_info_to_OMF ():
             msg_write("INFO", "Last position, already sent |{0}| ".format (str (position))  )
 
             # Reads the rows from the DB and sends to OMF
-            async for db_row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id > position).limit(block_size).order_by(_sensor_values_tbl.c.id) ):
+            #FIXME: ordr by user_ts and the limit aren't working properly
+            #async for db_row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id > position).order_by(_sensor_values_tbl.c.user_ts).limit(block_size) ):
+            async for db_row in conn.execute(_sensor_values_tbl.select().where(_sensor_values_tbl.c.id > position).order_by(_sensor_values_tbl.c.id).limit(block_size) ):
+
 
                 message =  "### sensor information ######################################################################################################"
                 msg_write("INFO", "{0}".format(message) )
@@ -490,8 +527,6 @@ async def send_info_to_OMF ():
                 measurement_id = "measurement_" + object_id
 
                 OMF_object_creation ()
-
-                # FIX ME: to be removed, only for dev
 
                 msg_write("INFO", "db row |{0}| |{1}| |{2}| |{3}| ".format(db_row.id, db_row.user_ts, db_row.read_key, db_row.reading  ))
 
@@ -512,4 +547,19 @@ async def send_info_to_OMF ():
                 pass
 
 
-asyncio.get_event_loop().run_until_complete(send_info_to_OMF())
+#
+# MAIN
+#
+start_message    = "\n" + PRG_NAME + " - Ver " + PRG_VERSION + "" + PRG_TEXT + "\n" + PRG_COMPANY + "\n"
+print (start_message)
+
+status = plugin_initialize()
+
+if status == True:
+    #FIX ME: TBD
+    #requests.packages.urllib3.disable_warnings()
+
+    # OMF - creations of the types
+    OMF_types_creation ()
+
+    asyncio.get_event_loop().run_until_complete(send_info_to_OMF())
