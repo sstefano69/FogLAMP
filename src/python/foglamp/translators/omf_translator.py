@@ -3,15 +3,16 @@
 
 """ Pushes information stored in FogLAMP into OSI/OMF
 The information are sent in chunks,
-the table foglamp.omf_trans_position and the constant block_size are used for this handling
+the table foglamp.streams and the constant block_size are used for this handling
 
 NOTE   :
     - this version reads rows from the foglamp.readings table - Latest FogLAMP code
-    - it uses foglamp.omf_trans_position to track the information to send
+    - it uses foglamp.streams to track the information to send
     - block_size identifies the number of rows to send for each execution
 
 #FIXME:
     - only part of the code is using async and SA
+
     - Temporary SQL code used for dev :
 
         INSERT INTO foglamp.destinations (id,description, ts ) VALUES (1,'OMF', now() );
@@ -35,8 +36,9 @@ NOTE   :
 import json
 import time
 import requests
-import datetime
 import sys
+import datetime
+
 
 #
 # Import packages - DB operations
@@ -49,49 +51,47 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 #
-# Module information
-#
-PRG_NAME          = "OMF Translator"
-PRG_VERSION       = "1.0.09"
-PRG_STAGE         = "dev"                  # dev/rel
-PRG_TEXT          = ", for Linux (x86_64)"
-PRG_COMPANY       = "2017 DB SOFTWARE INC."
-
-#
 # Global Constants
 #
 #
 
-# Object's attributes
-sensor_location = "S.F."
+# Module information
+PRG_NAME          = "OMF Translator"
+PRG_VERSION       = "1.0.14"
+PRG_STAGE         = "dev"                  # dev/rel
+PRG_TEXT          = ", for Linux (x86_64)"
+PRG_COMPANY       = "2017 DB SOFTWARE INC."
 
-# Types definitions
-type_id             = "3"
-type_measurement_id = "omf_trans_type_measurement_" + type_id
-type_object_id      = "omf_trans_type_object_id_"   + type_id
+# DB references
+DB_URL     = 'postgresql://foglamp:foglamp@localhost:5432/foglamp'
+
+#
+# Global variables
+#
 
 # PI Server references
 server_name    = ""
 relay_url      = ""
 producer_token = ""
 
-# OMFTypes
+# Handling the information in chunks
+block_size = 5
+
+# OMF Types
 types = ""
 
-# DB references
-#FIXME: port=5432'
-db_dsn     = 'dbname=foglamp user=foglamp password=foglamp host=127.0.0.1'
+# Types definitions
+type_id             = "3"
+type_measurement_id = "omf_trans_type_measurement_" + type_id
+type_object_id      = "omf_trans_type_object_id_" + type_id
 
-# Handling the information in chunks
-block_size = 10
-#block_size = 100
+# Object's attributes
+sensor_location = "S.F."
 
-#
-# Global variables
-#
-#
-conn = ""
-cur  = ""
+# DB operations
+pg_conn = ""
+pg_cur  = ""
+
 
 #
 # Functions
@@ -121,7 +121,7 @@ def plugin_initialize():
         relay_url = "http://" + server_name + ":8118/ingress/messages"
 
         # producerToken
-        producer_token = "omf_translator_33"
+        producer_token = "omf_translator_55"
 
         # OMFTypes
         types = [
@@ -208,6 +208,9 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
 
     :param target_stream_id:     OMF container ID
     :param information_to_send:  information retrieved from the DB that should be prepared
+
+    :return:  status            = True | False
+    :return:  data_values_JSON  = information_to_send converted in JSON format
     """
 
     status = True
@@ -251,7 +254,7 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
             pass
 
         try:
-            data_values_JSON[0]["values"][0]["Y"] = sensor_data["y"]
+            data_values_JSON[0]["values"][0]["y"] = sensor_data["y"]
             data_available = True
         except:
             pass
@@ -348,13 +351,13 @@ def send_OMF_message_to_end_point(message_type, OMF_data):
 
 def position_read():
     """
-    Retrieves the starting point for the operation, DB column id.
+    Retrieves the starting point for the operation
 
-    #FIXME: it should evolve using SA
+    #FIXME: it should evolve using the DB layer
     """
 
-    global conn
-    global cur
+    global pg_conn
+    global pg_cur
 
     status    = True
     position  = 0
@@ -362,9 +365,8 @@ def position_read():
     try:
         sql_cmd = "SELECT reading_id FROM foglamp.streams WHERE id=1"
 
-
-        cur.execute (sql_cmd)
-        rows = cur.fetchall()
+        pg_cur.execute (sql_cmd)
+        rows = pg_cur.fetchall()
         for row in rows:
             position = row[0]
             msg_write("INFO", "DB row position |{0}| : ". format (row[0]))
@@ -379,25 +381,30 @@ def position_read():
 
 def position_update(new_position):
     """
-    Updates the handled position, DB column id.
+    Updates the handled position
 
     :param new_position:  Last row already sent to OMF
 
-    #FIXME: it should evolve using SA
+    #FIXME: it should evolve using the DB layer
     """
+
+    global pg_conn
+    global pg_cur
 
     status    = True
 
     try:
-        conn = psycopg2.connect(db_dsn)
-        cur = conn.cursor()
-
         sql_cmd = "UPDATE foglamp.streams SET reading_id={0}  WHERE id=1".format(new_position)
-        cur.execute(sql_cmd)
+        pg_cur.execute(sql_cmd)
 
-        conn.commit()
+        pg_conn.commit()
+
     except:
+        message = sys.exc_info()[1]
+        #msg_write("ERROR", "Position update || ")
+        msg_write("ERROR", "Position update |{0}| ".format(message))
         status = False
+
 
     return status
 
@@ -481,19 +488,20 @@ def OMF_object_creation ():
 async def send_info_to_OMF ():
     """
     Reads the information from the DB and it sends to OMF
+
+    #FIXME: it should evolve using the DB layer
     """
 
-    global conn
-    global cur
+    global pg_conn
+    global pg_cur
 
     global sensor_id
     global measurement_id
 
-
     db_row = ""
 
-    conn = psycopg2.connect(db_dsn)
-    cur = conn.cursor()
+    pg_conn = psycopg2.connect(DB_URL)
+    pg_cur  = pg_conn.cursor()
 
     _sensor_values_tbl = sa.Table(
         'readings',
@@ -505,7 +513,7 @@ async def send_info_to_OMF ():
         sa.Column('reading', JSONB))
     """Defines the table that data will be inserted into"""
 
-    async with aiopg.sa.create_engine (db_dsn) as engine:
+    async with aiopg.sa.create_engine (DB_URL) as engine:
         async with engine.acquire() as conn:
 
             status, position = position_read()
