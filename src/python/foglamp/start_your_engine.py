@@ -19,18 +19,16 @@ async def main():
         #storage_layer (store) is the object where other modules interact with the storage engine
         # for example mesages are added to store by the COAP server
         #the coap server should just add messages to this queue.
-        #the storage() has no knowlage about and database.
+        #the storage() has no knowledge about database.
         #these message are ascyncronous (ie. you post and forget)
 
 
         #other requests like create_user wil also happen through the storage_layer
-        #however these messages will wait for a response.
+        #however these messages requrie the storage engine to be passed in along with the request type
+        #these calls are syncronous and will wait for a response.
 
         # lets test the new message engine
         store = eng.storage()  # used to add message. this is api
-
-        store.put_message("blah1")
-        store.put_message("blah2")
 
 
         #the storage_engine is the persistent (DB) storage and queue management
@@ -38,18 +36,27 @@ async def main():
 
         se = eng.storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'", store)
 
+        store.put_message("blah1")   #add mesage to queue, workflow engine will process
+        store.put_message("blah2")
 
+        # test some requests
         ret1 = store.put_request(se, requesttype.ping_engine, 'blah')
+        print("result="+ret1.message)
+
+
 
         wt = eng.worker_thread(se)
         wt.start()
 
 
         #test some requests
-        ret=se.put_request(eng.requesttype.ping_engine, "hello")
-        print("result="+ret.message)
+        ret1 = store.put_request(se, requesttype.ping_engine, 'blah')
+        print("result=" + ret1.message)
 
-        se.put_request(eng.requesttype.stop_engine, "hello")
+        ret2 = store.put_request(se, requesttype.stop_engine, 'blah')
+        print("result=" + ret2.message)
+
+
 
 
 

@@ -102,9 +102,11 @@ class storage_engine:
             ret= request_response(returncode.success,'all good')   #just return OK message for now
             return ret
         elif (reqtype == requesttype.stop_engine):
-            pass
+            ret = request_response(returncode.success, 'all good')
+            return ret
         elif (reqtype == requesttype.set_config):
-            pass
+            ret = request_response(returncode.success, 'all good')
+            return ret
         else:
             pass  # do the default
 
