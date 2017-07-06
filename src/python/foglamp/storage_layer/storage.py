@@ -16,7 +16,14 @@ class messagestate(IntEnum):
     ready=1
     done=2
 
-
+class requesttype(IntEnum):
+    ping_engine=0
+    stop_engine=1
+    set_config=2
+    get_config=3
+    create_user=4
+    drop_user=5
+    get_reading=6
 
 class storage(object):
 
@@ -31,3 +38,8 @@ class storage(object):
     def put_message(self, msg):
         self.q.put(msg)
 
+
+
+
+    def put_request(self, eng, reqt, req):
+        return eng.put_request(reqt,req)

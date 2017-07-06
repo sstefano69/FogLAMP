@@ -9,39 +9,17 @@ import asyncio
 import psycopg2
 import uuid
 from enum import IntEnum
+from foglamp.storage_layer.storage import storage
+from foglamp.storage_layer.storage import messagestate
+from foglamp.storage_layer.storage import requesttype
 
 
-class messagestate(IntEnum):
-    uploaded=0
-    ready=1
-    done=2
 
-class requesttype(IntEnum):
-    ping_engine=0
-    stop_engine=1
-    set_config=2
-    get_config=3
-    create_user=4
-    drop_user=5
-    get_reading=6
 
 class returncode(IntEnum):
     success=0,
     failed=1,
     success_with_warning=2
-
-
-class storage(object):
-
-    def __init__(self):
-        self.q = Queue()
-
-    def get_queue(self):
-        return self.q
-
-
-    def put_message(self, msg):
-        self.q.put(msg)
 
 
 
@@ -89,6 +67,9 @@ class storage_engine:
         self.store=stor
         self.rq=ready_queue(self.conn)
         self.uq=upload_queue(self.conn)
+
+
+
 
     def save_message(self, msg):
         cur = self.conn.cursor()

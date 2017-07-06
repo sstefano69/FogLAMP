@@ -5,8 +5,8 @@ from time import sleep
 import asyncio
 import psycopg2
 import uuid
-import workflow_engine.engine as eng
-
+import foglamp.workflow_engine.engine as eng
+from foglamp.storage_layer.storage import requesttype
 
 
 async def main():
@@ -39,7 +39,7 @@ async def main():
         se = eng.storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'", store)
 
 
-
+        ret1 = store.put_request(se, requesttype.ping_engine, 'blah')
 
         wt = eng.worker_thread(se)
         wt.start()
