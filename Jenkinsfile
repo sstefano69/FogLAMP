@@ -1,8 +1,8 @@
 node {
     // allow user to run job with all tests, only python tests, only doc tests
-    def all_choice = 'all'
-    def doc_choice = 'doc-tests'
-    def unit_test_choice = 'unit-tests' // pointing to src/python/tests
+    def choice_test_all = 'all'
+    def choice_test_doc = 'doc-build-tests'
+    def choice_test_python = 'python-unit-tests' // pointing to src/python/tests
 
     // adding job parameters within jenkinsfile
     properties([
@@ -13,12 +13,12 @@ node {
          name: 'repo_url'
        ),
        stringParam(
-         defaultValue: 'master',
-         description: 'The git branch you would like to build with.',
+         defaultValue: 'develop',
+         description: 'The git branch you would like to build with',
          name: 'branch'
        ),
        choice(
-         choices: "${all_choice}\n${doc_choice}\n${unit_test_choice}",
+         choices: "${choice_test_all}\n${choice_test_doc}\n${choice_test_python}",
          description: "run tests as per your choice",
          name: 'suite'
        )
@@ -62,24 +62,32 @@ node {
 
     stage ("Test Report"){
         dir ('src/python/'){
-            if (suite == "${all_choice}"){
-                echo "${all_choice}"
+            if (suite == "${choice_test_all}"){
+                echo "${choice_test_all}"
                 sh '''#!/bin/bash -l
                       ./build.sh -t
                     '''
-            }else if (suite == "${doc_choice}"){
-                echo "${doc_choice}"
+            }else if (suite == "${choice_test_doc}"){
+                echo "${choice_test_doc}"
                 sh '''#!/bin/bash -l
-                      ./build.sh --doctest
+                      ./build.sh --doc-build-test
                     '''
-            }else if (suite == "${unit_test_choice}"){
-                echo "${unit_test_choice}"
+            }else if (suite == "${choice_test_python}"){
+                echo "${choice_test_python}"
                 sh '''#!/bin/bash -l
                       ./build.sh -p
                     '''
             }
         }
         ansiColor('xterm'){
+            if (suite != "${choice_test_doc}"){
+                stage ("Test Coverage Report"){
+                    dir ('src/python/'){
+                        step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failNoReports: false, failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
+                    }
+                }
+            }
+
             allure([includeProperties: false, jdk: '', properties: [], reportBuildPolicy: 'ALWAYS', results: [[path: 'allure/']]])
         }
     }
