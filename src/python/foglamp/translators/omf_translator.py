@@ -11,13 +11,38 @@ The information are sent in chunks,
 the table foglamp.streams and the constant block_size are used for this handling
 
 Note   :
+    - how to run :
+        - it could be executed as is without parameters
+
+    - consider the constant LOG_SCREEN : Enable/Disable screen messages
+
     - this version reads rows from the foglamp.readings table - Latest FogLAMP code
     - it uses foglamp.streams to track the information to send
     - block_size identifies the number of rows to send for each execution
 
+    - Temporary/Useful SQL code used for dev :
+
+        INSERT INTO foglamp.destinations (id,description, ts ) VALUES (1,'OMF', now() );
+
+        INSERT INTO foglamp.streams (id,destination_id,description, reading_id,ts ) VALUES (1,1,'OMF', 666,now());
+
+        #
+        # Useful for an execution
+        #
+        SELECT MAX(ID) FROM foglamp.readings WHERE id >= 93491;
+
+        UPDATE foglamp.streams SET reading_id=106928, ts=now() WHERE id=1;
+
+        SELECT * FROM foglamp.streams;
+
+        SELECT * FROM foglamp.readings WHERE id > 98021 ORDER by USER_ts;
+
+        SELECT * FROM foglamp.readings WHERE id >= 98021 and reading ? 'lux' ORDER by USER_ts;
+
+
 Todo:
     - it should evolve using the DB layer
-    - only part of the code is using async and SA
+    - only part of the code is using async
 
 """
 
@@ -47,26 +72,32 @@ __company__   = "2017 DB SOFTWARE INC."
 __author__    = "2017 DB SOFTWARE INC."
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__   = "Apache 2.0"
-__version__   = "1.0.15"
+__version__   = "1.0.17"
 
 DB_URL     = 'postgresql://foglamp:foglamp@localhost:5432/foglamp'
 """DB references"""
 
+LOG_SCREEN = True
+"""Enable/Disable screen messages"""
+
+
 _message_list  = {
-    # Info messages
+    # Information messages
     "i000001": "operation successfully completed",
-    "i000002": "Started",
-    "i000003": "Execution completed.",
+    "i000002": __module__ + " - Started",
+    "i000003": __module__ + " - Execution completed.",
 
     # Warning / Error messages
     "e000001": __module__ + " - generic error.",
     "e000002": __module__ + " - cannot retrieve the starting point for sending operation - error details |{0}|.",
     "e000003": __module__ + " - cannot update the reached position - error details |{0}|.",
-    "e000004": __module__ + " - execution terminated - error details |{0}|.",
+    "e000004": __module__ + " - cannot complete the sending operation - error details |{0}|.",
     "e000005": __module__ + " - cannot configure the logging mechanism. - error details |{0}|.",
     "e000006": __module__ + " - cannot initialize the plugin. - error details |{0}|.",
     "e000007": __module__ + " - an error occurred during the OMF request. - error details |{0}|.",
-    "e000008": __module__ + " - an error occurred during the OMF's objects creation. - error details |{0}|."
+    "e000008": __module__ + " - an error occurred during the OMF's objects creation. - error details |{0}|.",
+    "e000009": __module__ + " - cannot retrieve information about the sensor.",
+    "e000010": __module__ + " - unable ro create the JSON message.",
 
 }
 """Used messages"""
@@ -75,11 +106,6 @@ _message_list  = {
 _log       = ""
 _handler   = ""
 _formatter = ""
-
-
-
-_log_screen = True
-"""Enable/Disable screen messages"""
 
 # SA related
 _readings_values_tbl = sa.Table(
@@ -99,36 +125,33 @@ _relay_url      = ""
 _producer_token = ""
 
 # The size of a block of readings to send in each transmission.
-block_size = 20
+_block_size = 20
 
 # OMF's objects creation
 _types           = ""
-sensor_id       = ""
-measurement_id  = ""
+_sensor_id       = ""
+_measurement_id  = ""
 
-_containers     = ""
-_static_data    = ""
-_link_data      = ""
 
 # OMF object's attributes
-sensor_location = "S.F."
+_sensor_location = "S.F."
 
 # OMF's types definitions
-type_id             = "6"
-type_measurement_id = "omf_trans_type_measurement_" + type_id
-type_sensor_id      = "omf_trans_type_sensor_id_"   + type_id
+_type_id             = "8"
+_type_measurement_id = "omf_trans_type_measurement_" + _type_id
+_type_sensor_id      = "omf_trans_type_sensor_id_" + _type_id
 
 
 # DB operations
-pg_conn = ""
-pg_cur  = ""
+_pg_conn = ""
+_pg_cur  = ""
 
 
 #
 # Functions
 #
 def plugin_initialize():
-    """Initialise the OMF plugin for the sending of blocks of readings to the PI Connector.
+    """Initializes the OMF plugin for the sending of blocks of readings to the PI Connector.
 
     Retrieves the configuration for :
         relay_url      - URL           - The URL of the PI Connector to send data to.
@@ -146,16 +169,13 @@ def plugin_initialize():
     global _relay_url
     global _producer_token
     global _types
-    global _containers
-    global _static_data
-    global _link_data
 
-    global sensor_location
-    global sensor_id
-    global measurement_id
+    global _sensor_location
+    global _sensor_id
+    global _measurement_id
 
-    global type_measurement_id
-    global type_sensor_id
+    global _type_measurement_id
+    global _type_sensor_id
 
     status = True
 
@@ -165,12 +185,12 @@ def plugin_initialize():
         _relay_url   = "http://" + _server_name + ":8118/ingress/messages"
 
         # producerToken
-        _producer_token = "omf_translator_61"
+        _producer_token = "omf_translator_76"
 
         # OMFTypes
         _types = [
             {
-                "id": type_sensor_id,
+                "id": _type_sensor_id,
                 "type": "object",
                 "classification": "static",
                 "properties": {
@@ -184,7 +204,7 @@ def plugin_initialize():
                 }
             },
             {
-                "id": type_measurement_id,
+                "id": _type_measurement_id,
                 "type": "object",
                 "classification": "dynamic",
                 "properties": {
@@ -192,9 +212,6 @@ def plugin_initialize():
                         "format": "date-time",
                         "type": "string",
                         "isindex": True
-                    },
-                    "key": {
-                        "type": "string"
                     },
                     "x": {
                         "type": "number"
@@ -229,46 +246,6 @@ def plugin_initialize():
         ]
 
 
-        # OSI/OMF object definition
-        _containers = [
-            {
-                "id": measurement_id,
-                "typeid": type_measurement_id
-            }
-        ]
-
-        _static_data = [{
-            "typeid": type_sensor_id,
-            "values": [{
-                "Name": sensor_id,
-                "Location": sensor_location
-            }]
-        }]
-
-        _link_data = [{
-            "typeid": "__Link",
-            "values": [{
-                "source": {
-                    "typeid": type_sensor_id,
-                    "index": "_ROOT"
-                },
-                "target": {
-                    "typeid": type_sensor_id,
-                    "index": sensor_id
-                }
-            }, {
-                "source": {
-                    "typeid": type_sensor_id,
-                    "index": sensor_id
-                },
-                "target": {
-                    "containerid": measurement_id
-                }
-
-            }]
-        }]
-
-
     except Exception as e:
         status  = False
         message = _message_list["e000006"].format(e)
@@ -283,9 +260,7 @@ def debug_msg_write(severityMessage, message):
     """Writes a debug message
     """
 
-    global _log_screen
-
-    if _log_screen == True:
+    if LOG_SCREEN == True:
 
         if severityMessage == "":
             print("{0:}".format(message))
@@ -298,14 +273,19 @@ def debug_msg_write(severityMessage, message):
 
 
 def create_data_values_stream_message(target_stream_id, information_to_send):
-    """
-    Creates the data for OMF
+    """Creates the JSON data for OMF
 
-    :param target_stream_id:     OMF container ID
-    :param information_to_send:  information retrieved from the DB that should be prepared
+    Args:
+        target_stream_id:     OMF container ID
+        information_to_send:  information retrieved that should be prepared for OMF
 
-    :return:  status            = True | False
-    :return:  data_values_JSON  = information_to_send converted in JSON format
+    Returns:
+        status: True if successful, False otherwise.
+        data_values_JSON: information converted in JSON format
+
+    Raises:
+        Exception: unable ro create the JSON message.
+
     """
 
     status = True
@@ -314,7 +294,6 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
     data_values_JSON = ''
 
     row_id      = information_to_send.id
-    row_key     = information_to_send.read_key
     asset_code  = information_to_send.asset_code
     timestamp   = information_to_send.user_ts.isoformat()
     sensor_data = information_to_send.reading
@@ -330,8 +309,7 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
                 "containerid": target_stream_id,
                 "values": [
                     {
-                        "Time": timestamp,
-                        "key": row_key
+                        "Time": timestamp
                     }
                 ]
             }
@@ -401,13 +379,16 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
 
         else:
             status = False
-            debug_msg_write("WARNING ", "not asset data")
-
+            _log.warning(_message_list["e000009"])
 
 
     except:
-        status = False
-        debug_msg_write("WARNING ", "not asset data")
+        status  = False
+        message = _message_list["e000010"].format(e)
+
+        _log.error(message)
+        raise Exception(message)
+
 
     return status, data_values_JSON
 
@@ -505,8 +486,8 @@ def position_read():
     """
 
     global log
-    global pg_conn
-    global pg_cur
+    global _pg_conn
+    global _pg_cur
 
     status    = True
     position  = 0
@@ -514,8 +495,8 @@ def position_read():
     try:
         sql_cmd = "SELECT reading_id FROM foglamp.streams WHERE id=1"
 
-        pg_cur.execute (sql_cmd)
-        rows = pg_cur.fetchall()
+        _pg_cur.execute (sql_cmd)
+        rows = _pg_cur.fetchall()
         for row in rows:
             position = row[0]
             debug_msg_write("INFO", "DB row position |{0}| : ". format (row[0]))
@@ -545,16 +526,16 @@ def position_update(new_position):
 
     """
 
-    global pg_conn
-    global pg_cur
+    global _pg_conn
+    global _pg_cur
 
     status    = True
 
     try:
         sql_cmd = "UPDATE foglamp.streams SET reading_id={0}, ts=now()  WHERE id=1".format(new_position)
-        pg_cur.execute(sql_cmd)
+        _pg_cur.execute(sql_cmd)
 
-        pg_conn.commit()
+        _pg_conn.commit()
 
     except Exception as e:
         status  = False
@@ -595,81 +576,68 @@ def OMF_object_creation ():
     status = True
 
 
-    global sensor_location
-    global sensor_id
-    global measurement_id
+    global _sensor_location
+    global _sensor_id
+    global _measurement_id
 
-    global type_measurement_id
-    global type_sensor_id
+    global _type_measurement_id
+    global _type_sensor_id
 
 
-    # OSI/OMF objects definition
-    containers = [
-        {
-            "id": measurement_id,
-            "typeid": type_measurement_id
-        }
-    ]
-
-    staticData = [{
-        "typeid": type_sensor_id,
-        "values": [{
-            "Name": sensor_id,
-            "Location": sensor_location
-        }]
-    }]
-
-    linkData = [{
-        "typeid": "__Link",
-        "values": [{
-            "source": {
-                "typeid": type_sensor_id,
-                "index": "_ROOT"
-            },
-            "target": {
-                "typeid": type_sensor_id,
-                "index": sensor_id
+    try:
+        # OSI/OMF objects definition
+        containers = [
+            {
+                "id": _measurement_id,
+                "typeid": _type_measurement_id
             }
-        }, {
-            "source": {
-                "typeid": type_sensor_id,
-                "index": sensor_id
-            },
-            "target": {
-                "containerid": measurement_id
-            }
+        ]
 
+        staticData = [{
+            "typeid": _type_sensor_id,
+            "values": [{
+                "Name": _sensor_id,
+                "Location": _sensor_location
+            }]
         }]
-    }]
+
+        linkData = [{
+            "typeid": "__Link",
+            "values": [{
+                "source": {
+                    "typeid": _type_sensor_id,
+                    "index": "_ROOT"
+                },
+                "target": {
+                    "typeid": _type_sensor_id,
+                    "index": _sensor_id
+                }
+            }, {
+                "source": {
+                    "typeid": _type_sensor_id,
+                    "index": _sensor_id
+                },
+                "target": {
+                    "containerid": _measurement_id
+                }
+
+            }]
+        }]
 
 
-    status = send_OMF_message_to_end_point("Container", containers)
+        send_OMF_message_to_end_point("Container", containers)
 
-    if status == True:
-        status = send_OMF_message_to_end_point("Data", staticData)
+        send_OMF_message_to_end_point("Data", staticData)
 
-    if status == True:
-        status = send_OMF_message_to_end_point("Data", linkData)
-
-    return status
+        send_OMF_message_to_end_point("Data", linkData)
 
 
+    except Exception as e:
+        status  = False
+        message =_message_list["e000008"].format(e)
 
-    #FIXME:
-    # try:
-    #     send_OMF_message_to_end_point("Container", _containers)
-    #
-    #     send_OMF_message_to_end_point("Data", _static_data)
-    #
-    #     send_OMF_message_to_end_point("Data", _link_data)
-    #
-    #
-    # except Exception as e:
-    #     status  = False
-    #     message =_message_list["e000008"].format(e)
-    #
-    #     _log.error(message)
-    #     raise Exception(message)
+        _log.error(message)
+        raise Exception(message)
 
     return status
 
@@ -681,7 +649,7 @@ async def send_info_to_OMF ():
         status: True if successful, False otherwise.
 
     Raises:
-        Exception:
+        Exception: cannot complete the sending operation
 
     Todo:
         it should evolve using the DB layer
@@ -689,20 +657,18 @@ async def send_info_to_OMF ():
     """
 
 
-    global pg_conn
-    global pg_cur
+    global _pg_conn
+    global _pg_cur
 
-    global sensor_id
-    global measurement_id
+    global _sensor_id
+    global _measurement_id
 
     db_row = ""
 
     try:
-        pg_conn = psycopg2.connect(DB_URL)
-        pg_cur  = pg_conn.cursor()
+        _pg_conn = psycopg2.connect(DB_URL)
+        _pg_cur  = _pg_conn.cursor()
 
-        # FIXME:
-        status = position_update(97996)
 
         async with aiopg.sa.create_engine (DB_URL) as engine:
             async with engine.acquire() as conn:
@@ -713,34 +679,31 @@ async def send_info_to_OMF ():
                     # Reads the rows from the DB and sends to OMF
                     #FIXME: order by user_ts and the limit aren't working properly
                     #async for db_row in conn.execute(_readings_values_tbl.select().where(_readings_values_tbl.c.id > position).order_by(_readings_values_tbl.c.user_ts).limit(block_size) ):
-                    async for db_row in conn.execute(_readings_values_tbl.select().where(_readings_values_tbl.c.id > position).order_by(_readings_values_tbl.c.id).limit(block_size) ):
+                    async for db_row in conn.execute(_readings_values_tbl.select().where(_readings_values_tbl.c.id > position).order_by(_readings_values_tbl.c.id).limit(_block_size)):
 
                         message =  "### sensor information ######################################################################################################"
                         debug_msg_write("INFO", "{0}".format(message))
 
                         # Identification of the object/sensor
-                        sensor_id      = db_row.asset_code
-                        measurement_id = "measurement_" + sensor_id
+                        _sensor_id      = db_row.asset_code
+                        _measurement_id = "measurement_" + _sensor_id
 
-                        status = OMF_object_creation ()
+                        OMF_object_creation ()
 
-                        debug_msg_write("INFO", "db row |{0}| |{1}| |{2}| |{3}| ".format(db_row.id, db_row.user_ts, db_row.read_key, db_row.reading))
+                        debug_msg_write("INFO", "db row |{0}| |{1}| |{2}| ".format(db_row.id, db_row.user_ts, db_row.reading))
 
                         # Loads data into OMF
-                        status, values = create_data_values_stream_message(measurement_id, db_row)
-                        if status == True:
-                            status = send_OMF_message_to_end_point("Data", values)
+                        status, values = create_data_values_stream_message(_measurement_id, db_row)
+                        send_OMF_message_to_end_point("Data", values)
 
                     message = "### completed ######################################################################################################"
                     debug_msg_write("INFO", "{0}".format(message))
 
-                    try:
-                        new_position = db_row.id
-                        debug_msg_write("INFO", "Last position, sent |{0}| ".format(str(new_position)))
+                    new_position = db_row.id
+                    debug_msg_write("INFO", "Last position, sent |{0}| ".format(str(new_position)))
 
-                        status = position_update (new_position)
-                    except:
-                        pass
+                    position_update (new_position)
+
 
     except Exception as e:
         status  = False
@@ -752,22 +715,18 @@ async def send_info_to_OMF ():
 #
 # MAIN
 #
-log_configuration ()
+if __name__ == "__main__":
 
-start_message    = "\n" + __module__ + " - Ver " + __version__ + "" + __prg_text__ + "\n" + __company__ + "\n"
-debug_msg_write ("", "{0}".format(start_message) )
-debug_msg_write ("INFO", _message_list["e000002"])
+    log_configuration  ()
 
-plugin_initialize()
+    start_message    = "\n" + __module__ + " - Ver " + __version__ + "" + __prg_text__ + "\n" + __company__ + "\n"
+    debug_msg_write ("", "{0}".format(start_message) )
+    debug_msg_write ("INFO", _message_list["i000002"])
 
+    plugin_initialize  ()
 
+    OMF_types_creation ()
 
-#FIX ME: TBD
-#requests.packages.urllib3.disable_warnings()
+    asyncio.get_event_loop().run_until_complete( send_info_to_OMF() )
 
-# OMF - creations of the types
-OMF_types_creation ()
-
-asyncio.get_event_loop().run_until_complete(send_info_to_OMF())
-
-debug_msg_write ("INFO", _message_list["e000003"])
+    debug_msg_write ("INFO", _message_list["i000003"])
