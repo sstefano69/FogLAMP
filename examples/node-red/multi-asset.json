@@ -1,0 +1,147 @@
+[
+    {
+        "id": "63b6fb03.fef234",
+        "type": "tab",
+        "label": "Flow 1"
+    },
+    {
+        "id": "86eebe75.4c116",
+        "type": "coap request",
+        "z": "63b6fb03.fef234",
+        "method": "POST",
+        "observe": false,
+        "url": "coap://localhost/other/sensor-values",
+        "content-format": "application/cbor",
+        "raw-buffer": false,
+        "name": "",
+        "x": 620,
+        "y": 203,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "eec0ac94.df51d",
+        "type": "inject",
+        "z": "63b6fb03.fef234",
+        "name": "Mouse",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "x": 123,
+        "y": 247,
+        "wires": [
+            [
+                "7d968a2c.9214c4"
+            ]
+        ]
+    },
+    {
+        "id": "7d968a2c.9214c4",
+        "type": "function",
+        "z": "63b6fb03.fef234",
+        "name": "MakeJSON",
+        "func": "msg.payload = \n{\n    sensor_values : {\n        button : 'Down'\n    },\n    timestamp : new Date(msg.payload).toISOString(),\n    asset: 'mouse'\n}\n;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 317,
+        "y": 248,
+        "wires": [
+            [
+                "86eebe75.4c116",
+                "db627599.08a638"
+            ]
+        ]
+    },
+    {
+        "id": "a72c302f.ba4c1",
+        "type": "sensorTag",
+        "z": "63b6fb03.fef234",
+        "name": "",
+        "topic": "sensorTag",
+        "uuid": "",
+        "temperature": true,
+        "humidity": true,
+        "pressure": true,
+        "magnetometer": true,
+        "accelerometer": true,
+        "gyroscope": true,
+        "keys": true,
+        "luxometer": true,
+        "x": 114,
+        "y": 433,
+        "wires": [
+            [
+                "6b562777.6b6c78"
+            ]
+        ]
+    },
+    {
+        "id": "6b562777.6b6c78",
+        "type": "function",
+        "z": "63b6fb03.fef234",
+        "name": "MakeJSON",
+        "func": "msg.payload = {\n    timestamp : new Date().toISOString(),\n    asset : 'TI ' + msg.topic,\n    sensor_values : msg.payload\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 323,
+        "y": 433,
+        "wires": [
+            [
+                "86eebe75.4c116",
+                "db627599.08a638"
+            ]
+        ]
+    },
+    {
+        "id": "bc4f246b.1a2958",
+        "type": "inject",
+        "z": "63b6fb03.fef234",
+        "name": "Wall Clock",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "repeat": "1",
+        "crontab": "",
+        "once": false,
+        "x": 122,
+        "y": 108,
+        "wires": [
+            [
+                "b0c80e36.b2b7b"
+            ]
+        ]
+    },
+    {
+        "id": "b0c80e36.b2b7b",
+        "type": "function",
+        "z": "63b6fb03.fef234",
+        "name": "MakeJSON",
+        "func": "msg.payload = \n{\n    sensor_values : {\n        tick : \"tock\"\n    },\n    timestamp: new Date(msg.payload).toISOString(),\n    asset: 'wall clock'\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 315,
+        "y": 108,
+        "wires": [
+            [
+                "86eebe75.4c116",
+                "db627599.08a638"
+            ]
+        ]
+    },
+    {
+        "id": "db627599.08a638",
+        "type": "debug",
+        "z": "63b6fb03.fef234",
+        "name": "",
+        "active": true,
+        "console": "false",
+        "complete": "payload",
+        "x": 620,
+        "y": 315,
+        "wires": []
+    }
+]
