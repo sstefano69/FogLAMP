@@ -7,7 +7,7 @@ import psycopg2
 import uuid
 import foglamp.workflow_engine.engine as eng
 from foglamp.storage_layer.storage import requesttype
-
+from foglamp.storage_layer.storage import userinfo
 
 async def main():
     print("connecting to the database")
@@ -43,7 +43,22 @@ async def main():
         ret1 = store.put_request(se, requesttype.ping_engine, 'blah')
         print("result="+ret1.message)
 
+        ret = store.put_request(se, requesttype.clear_all_roles, None)
 
+
+        ui = userinfo()
+
+        ui.set_role("standard_user", "this is a standard user")
+
+        ret=ui.store.put_request(se, requesttype.get_role, ui)
+
+        print("create role")
+        ret2 = store.put_request(se, requesttype.create_role, ui)
+
+        ui.set_user('mike','$55',5)
+
+        print("create user")
+        ret3 = store.put_request(se,requesttype.create_user,ui)
 
         wt = eng.worker_thread(se)
         wt.start()

@@ -24,6 +24,37 @@ class requesttype(IntEnum):
     create_user=4
     drop_user=5
     get_reading=6
+    create_role=7,
+    clear_all_roles=8,
+    get_role=9
+
+
+class userinfo(object):
+
+    def __init__(self):
+        self.uid=""
+        self.pwd=""
+        self.role=""
+        self.role_id=0
+        self.role_description=""
+
+    def set_role(self, _role, _role_desc):
+        self.role=_role
+        self.role_description=_role_desc
+
+    def set_user(self, _uid, _pwd, _role_id):
+        self.uid=_uid
+        self.pwd=_pwd
+        self.role_id=_role_id
+
+
+
+
+
+
+
+
+
 
 class storage(object):
 

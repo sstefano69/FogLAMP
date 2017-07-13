@@ -96,17 +96,61 @@ class storage_engine:
         cur.execute("update message_queue set reader_id='" + str(self.reader_id) + "' where state <"+ str(int( messagestate.done)) + " and reader_id is NULL")
 
 
+    def create_role(self, request):
+        ui = request  #this is useinfo
+        #now create the user in the database
+        cur = self.conn.cursor()
+        ret =cur.execute("insert into roles (name,description) values( %s, %s )",(ui.role,ui.role_description))
+        return request_response(returncode.success, 'all good')
+
+    def get_role(self, request):
+        ui = request  # this is useinfo
+        # now create the user in the database
+        cur = self.conn.cursor()
+        ret = cur.execute("select id from roles where name=%s", (ui.role))
+        return request_response(returncode.success, ret)
+
+    def clear_roles(self, request):
+        #now create the user in the database
+        cur = self.conn.cursor()
+        ret =cur.execute("delete from roles")
+        return request_response(returncode.success, 'all good')
+
+    def create_user(self, request):
+        ui = request  # this is useinfo
+        # now create the user in the database
+        cur = self.conn.cursor()
+        ret = cur.execute("insert into users (uid,pwd,role_id) values( %s, %s, %d )", (ui.uid, ui.pwd, ui.role_id))
+        return request_response(returncode.success, 'all good')
+
+
+
 
     def process_request(self, reqtype, request):
         if (reqtype == requesttype.ping_engine):
             ret= request_response(returncode.success,'all good')   #just return OK message for now
             return ret
+
+        if (reqtype == requesttype.create_user):
+            ret= self.create_user(request)
+            return ret
+
+        if (reqtype == requesttype.create_role):
+            ret= self.create_role(request)
+            return ret
+
+        if (reqtype == requesttype.clear_all_roles):
+            ret= self.clear_roles(request)
+            return ret
+
         elif (reqtype == requesttype.stop_engine):
             ret = request_response(returncode.success, 'all good')
             return ret
+
         elif (reqtype == requesttype.set_config):
             ret = request_response(returncode.success, 'all good')
             return ret
+
         else:
             pass  # do the default
 
