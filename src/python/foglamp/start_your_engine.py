@@ -28,16 +28,16 @@ async def main():
         #these calls are syncronous and will wait for a response.
 
         # lets test the new message engine
-        store = eng.storage()  # used to add message. this is api
+        store = eng.storage()  # used to add messages and make request
 
 
         #the storage_engine is the persistent (DB) storage and queue management
         #it has a conection to the database and a reference to the storage queue (store)
 
-        se = eng.storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'", store)
+        se = eng.storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'")
 
-        store.put_message("blah1")   #add mesage to queue, workflow engine will process
-        store.put_message("blah2")
+        store.put_message(se,"blah1")   #add mesage to queue, workflow engine will process
+        store.put_message(se,"blah2")
 
         # test some requests
         ret1 = store.put_request(se, requesttype.ping_engine, 'blah')

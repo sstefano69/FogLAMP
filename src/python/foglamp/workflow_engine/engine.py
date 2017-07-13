@@ -59,17 +59,18 @@ class request_response:
 
 
 class storage_engine:
-    def __init__(self, connection_string, stor):
+    def __init__(self, connection_string):
         self.running=True
         self.conn = psycopg2.connect("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'")
         self.conn.set_session(autocommit=True)
         self.reader_id= uuid.uuid1()
-        self.store=stor
         self.rq=ready_queue(self.conn)
         self.uq=upload_queue(self.conn)
+        self.q = Queue()
 
 
-
+    def get_queue(self):
+        return self.q
 
     def save_message(self, msg):
         cur = self.conn.cursor()
@@ -213,7 +214,7 @@ class worker_thread(threading.Thread):
             # first lets insert all messages added to storage to the db message_queue
             try:
                 while True:
-                    message = self.se.store.get_queue().get_nowait()
+                    message = self.se.get_queue().get_nowait()
                     self.se.save_message(message)
 
             except Exception as e:
