@@ -22,11 +22,14 @@ class requesttype(IntEnum):
     set_config=2
     get_config=3
     create_user=4
-    drop_user=5
+    delete_user=5
     get_reading=6
-    create_role=7,
-    clear_all_roles=8,
-    get_role=9
+    delete_role=7,
+    delete_all_roles=8,
+    get_role=9,
+    delete_all_roles_cascade =10  #will remove all usesrs as well
+    delete_all_users=11,
+    create_role=12
 
 
 class userinfo(object):

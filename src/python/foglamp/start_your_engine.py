@@ -43,19 +43,22 @@ async def main():
         ret1 = store.put_request(se, requesttype.ping_engine, 'blah')
         print("result="+ret1.message)
 
-        ret = store.put_request(se, requesttype.clear_all_roles, None)
+        ret = store.put_request(se, requesttype.delete_all_roles_cascade, None)
 
 
         ui = userinfo()
 
         ui.set_role("standard_user", "this is a standard user")
 
-        ret=ui.store.put_request(se, requesttype.get_role, ui)
 
         print("create role")
         ret2 = store.put_request(se, requesttype.create_role, ui)
 
-        ui.set_user('mike','$55',5)
+        ret = store.put_request(se, requesttype.get_role, ui)
+        new_row_id = ret.message.role_id
+
+
+        ui.set_user('mike','$55',new_row_id)
 
         print("create user")
         ret3 = store.put_request(se,requesttype.create_user,ui)

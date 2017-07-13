@@ -107,20 +107,33 @@ class storage_engine:
         ui = request  # this is useinfo
         # now create the user in the database
         cur = self.conn.cursor()
-        ret = cur.execute("select id from roles where name=%s", (ui.role))
-        return request_response(returncode.success, ret)
+        cur.execute("select id from roles where name = %s", [ui.role])
+        row = cur.fetchone()
+        ui.role_id=row[0]
+        return request_response(returncode.success, ui)
 
-    def clear_roles(self, request):
+    def delete_roles(self, request):
         #now create the user in the database
         cur = self.conn.cursor()
         ret =cur.execute("delete from roles")
+        return request_response(returncode.success, 'all good')
+
+    def delete_users(self, request):
+        #now create the user in the database
+        cur = self.conn.cursor()
+        ret =cur.execute("delete from users")
+        return request_response(returncode.success, 'all good')
+
+    def delete_roles_cascade(self, request):
+        self.delete_users( request)
+        self.delete_roles( request)
         return request_response(returncode.success, 'all good')
 
     def create_user(self, request):
         ui = request  # this is useinfo
         # now create the user in the database
         cur = self.conn.cursor()
-        ret = cur.execute("insert into users (uid,pwd,role_id) values( %s, %s, %d )", (ui.uid, ui.pwd, ui.role_id))
+        ret = cur.execute("insert into users (uid,pwd,role_id) values( %s, %s, %s )", (ui.uid, ui.pwd, ui.role_id))
         return request_response(returncode.success, 'all good')
 
 
@@ -139,8 +152,20 @@ class storage_engine:
             ret= self.create_role(request)
             return ret
 
-        if (reqtype == requesttype.clear_all_roles):
-            ret= self.clear_roles(request)
+        if (reqtype == requesttype.delete_all_roles):
+            ret= self.delete_roles(request)
+            return ret
+
+        if (reqtype == requesttype.delete_all_roles_cascade):
+            ret= self.delete_roles_cascade(request)
+            return ret
+
+        if (reqtype == requesttype.delete_all_users):
+            ret= self.delete_users(request)
+            return ret
+
+        if (reqtype == requesttype.get_role):
+            ret= self.get_role(request)
             return ret
 
         elif (reqtype == requesttype.stop_engine):
