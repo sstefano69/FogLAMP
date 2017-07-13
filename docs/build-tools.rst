@@ -6,7 +6,7 @@ Coverage Report
 
  Test coverage report helps you to analyse the code covered by your unit tests.
 
- Foglamp uses `pytest-cov <http://pytest-cov.readthedocs.io/en/latest/readme.html>`_ (pytest plugin for coverage reporting) to check the code coverage.
+ FogLAMP uses `pytest-cov <http://pytest-cov.readthedocs.io/en/latest/readme.html>`_ (pytest plugin for coverage reporting) to check the code coverage.
 
 How to run Test Coverage (through make)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -35,12 +35,14 @@ How to modify configuration of coverage
 Test Report
 -----------
 
- Foglamp uses `Allure <http://allure.qatools.ru/>`_ to visualise the test reports.
+ FogLAMP uses `Allure <http://allure.qatools.ru/>`_ to visualise the test reports.
 
 Prerequisite
 ^^^^^^^^^^^^
 
  Install allure on your local machine. Use instructions listed `here <http://wiki.qatools.ru/display/AL/Allure+Commandline>`_
+
+ `Note:` Unable to locate package allure-commandline for Ubuntu users. See `link <https://stackoverflow.com/questions/34772906/unable-to-install-allure-cli-on-ubuntu-15-10>`_
 
 How to generate Allure Report (through make)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
