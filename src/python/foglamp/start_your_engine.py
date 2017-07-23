@@ -8,6 +8,8 @@ import uuid
 import foglamp.workflow_engine.engine as eng
 from foglamp.storage_layer.storage import requesttype
 from foglamp.storage_layer.storage import userinfo
+from foglamp.storage_layer.storage import configinfo
+
 
 async def main():
     print("connecting to the database")
@@ -76,6 +78,21 @@ async def main():
         print("create user")
         ret3 = store.put_request(se,requesttype.create_user,ui)
 
+        print("delete all config")
+        ret4 = store.put_request(se, requesttype.delete_all_config, None)
+
+        print("delete config key")
+        ret4 = store.put_request(se, requesttype.delete_config, "age")
+
+        print("set config info")
+        ci = configinfo()
+        ci.set_setting('age', '25', 'blah blah')
+        ret4 = store.put_request(se, requesttype.set_config, ci)
+
+        #lets test it
+        print("get config info")
+        ret5 = store.put_request(se, requesttype.get_config, "age")
+        print("config value for age is "+ str(ret5.message))
         wt = eng.worker_thread(se)
         wt.start()
 

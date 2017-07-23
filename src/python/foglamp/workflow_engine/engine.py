@@ -57,7 +57,6 @@ class decode_queue:
         row = cur.fetchone()
         print(row) #for now just print the message
         cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", (str(int(tostate)), str(message_id)))
-        #cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", (str(int(messagestate.done)),str(message_id)))
         print("message moved to done queue")
 
 class request_response:
@@ -148,8 +147,36 @@ class storage_engine:
         ret = cur.execute("insert into users (uid,pwd,role_id) values( %s, %s, %s )", (ui.uid, ui.pwd, ui.role_id))
         return request_response(returncode.success, 'all good')
 
+    def set_config(self, request):
+        ci = request  # this is configinfo
+        # now create the user in the database
+        cur = self.conn.cursor()
+        ret = cur.execute("insert into configuration (key,description,value) values( %s, %s, %s )", (ci.key, ci.description, ci.value))
+        return request_response(returncode.success, 'all good')
 
+    def delete_config(self, request):
+        key = request  # this is the key
+        cur = self.conn.cursor()
+        ret =cur.execute("delete from configuration where key = %s ", [key])
+        return request_response(returncode.success, 'all good')
 
+    def delete_all_config(self, request):
+        # now create the user in the database
+        cur = self.conn.cursor()
+        ret = cur.execute("delete from configuration")
+        return request_response(returncode.success, 'all good')
+
+    def get_config(self, request):
+        key = request  # this is the key
+        # now create the user in the database
+        cur = self.conn.cursor()
+        cur.execute("select value from configuration where key = %s ", [key])
+        row = cur.fetchone()
+        if row is None:
+            return request_response(returncode.failed, 'config value missing.')
+        else:
+            value = row[0]
+            return request_response(returncode.success, value)
 
     def process_request(self, reqtype, request):
         if (reqtype == requesttype.ping_engine):
@@ -158,6 +185,22 @@ class storage_engine:
 
         if (reqtype == requesttype.create_user):
             ret= self.create_user(request)
+            return ret
+
+        if (reqtype == requesttype.set_config):
+            ret = self.set_config(request)
+            return ret
+
+        if (reqtype == requesttype.get_config):
+            ret = self.get_config(request)
+            return ret
+
+        if (reqtype == requesttype.delete_config):
+            ret = self.delete_config(request)
+            return ret
+
+        if (reqtype == requesttype.delete_all_config):
+            ret = self.delete_all_config(request)
             return ret
 
         if (reqtype == requesttype.create_role):

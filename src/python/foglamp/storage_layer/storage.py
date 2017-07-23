@@ -21,7 +21,9 @@ class requesttype(IntEnum):
     get_role=9,
     delete_all_roles_cascade =10  #will remove all usesrs as well
     delete_all_users=11,
-    create_role=12
+    create_role=12,
+    delete_config=13,
+    delete_all_config=14
 
 
 class userinfo(object):
@@ -45,6 +47,17 @@ class userinfo(object):
 
 
 
+class configinfo(object):
+
+    def __init__(self):
+        self.key=""
+        self.value=""
+        self.description=""
+
+    def set_setting(self, _key, _value, _description):
+        self.key=_key
+        self.value=_value
+        self.description=_description
 
 
 
