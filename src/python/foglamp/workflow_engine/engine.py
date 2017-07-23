@@ -28,22 +28,22 @@ class upload_queue:           #just move to read queue
     def __init__(self, conn):
         self.conn=conn
 
-    def process(self, message_id):  #this is code to actually unpak the message
+    def process(self, message_id, tostate):  #this is code to actually unpak the message
         cur = self.conn.cursor()
-        print("message moved to ready queue "+ str(int( messagestate.ready)))
-        cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", ( str(int( messagestate.ready)),str(message_id)  ))
+        print("message moved to ready queue "+ str(tostate))
+        cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", ( str(int( tostate)),str(message_id)  ))
 
 
 class ready_queue:
     def __init__(self, conn):
         self.conn=conn
 
-    def process(self, message_id):  #this is code to actually unpak the message
+    def process(self, message_id, tostate):  #this is code to actually unpak the message
         cur = self.conn.cursor()
         cur.execute("select message_queue from message_queue where message_id = %s", [str(message_id)])
         row = cur.fetchone()
         print(row) #for now just print the message
-        cur.execute("update message_queue set reader_id=NULL, state = %s where message_id = %s", (str(int(messagestate.decode)),str(message_id)))
+        cur.execute("update message_queue set reader_id=NULL, state = %s where message_id = %s", (str(int(tostate)),str(message_id)))
         print("message moved to next queue")
 
 
@@ -51,12 +51,13 @@ class decode_queue:
     def __init__(self, conn):
         self.conn=conn
 
-    def process(self, message_id):  #this is code to actually unpack the message
+    def process(self, message_id, tostate):  #this is code to actually unpack the message
         cur = self.conn.cursor()
         cur.execute("select message_queue from message_queue where message_id = %s ", [str(message_id)])
         row = cur.fetchone()
         print(row) #for now just print the message
-        cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", (str(int(messagestate.done)),str(message_id)))
+        cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", (str(int(tostate)), str(message_id)))
+        #cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", (str(int(messagestate.done)),str(message_id)))
         print("message moved to done queue")
 
 class request_response:
@@ -195,17 +196,30 @@ class storage_engine:
         return self.process_request(reqtype,request)
 
 
-
+    #The process() function codefies the workflow
+    #to add or modify the workflow for a message you should modify this function
+    # the current workflow is
+    #       (uploaded -> ready -> decode -> done
+    # to add an additional step in workflow you add it here
+    # note* the second message in the queue process function is the NEXT state
+    # for example if you wanted to send the message prior to done you would create a
+    # sendQUeue sq, create a new state messagestate.send
+    # then change self.dq.process(message_id, messagestate.done) -> self.dq.process(message_id, messagestate.send)
+    # now add the worktask
+    #  elif (state==messagestate.send):
+    #        self.sq.process(message_id, messagestate.done)
+    #
+    #
 
     def process(self,message_id):
         state = self.get_state(message_id)
-
+        # all messages start in an uploaded staaaate
         if(state==messagestate.uploaded):
-            self.uq.process(message_id)
+            self.uq.process(message_id, messagestate.ready) # the second argument determiines the next state in workflow
         elif (state==messagestate.ready):
-            self.rq.process(message_id)
+            self.rq.process(message_id, messagestate.decode)
         elif (state==messagestate.decode):
-            self.dq.process(message_id)
+            self.dq.process(message_id, messagestate.done)
         elif (state==messagestate.done):
             pass
         else:
