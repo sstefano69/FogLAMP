@@ -6,7 +6,8 @@ from enum import IntEnum
 class messagestate(IntEnum):
     uploaded=0
     ready=1
-    done=2
+    decode=2
+    done=20
 
 class requesttype(IntEnum):
     ping_engine=0

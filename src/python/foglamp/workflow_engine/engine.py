@@ -31,7 +31,7 @@ class upload_queue:           #just move to read queue
     def process(self, message_id):  #this is code to actually unpak the message
         cur = self.conn.cursor()
         print("message moved to ready queue "+ str(int( messagestate.ready)))
-        cur.execute("update message_queue set reader_id=NULL, state = "+ str(int( messagestate.ready)) + " where message_id ='" + str(message_id) + "'")
+        cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", ( str(int( messagestate.ready)),str(message_id)  ))
 
 
 class ready_queue:
@@ -40,14 +40,24 @@ class ready_queue:
 
     def process(self, message_id):  #this is code to actually unpak the message
         cur = self.conn.cursor()
-        cur.execute("select message_queue from message_queue where message_id ='" + str(message_id) + "'")
+        cur.execute("select message_queue from message_queue where message_id = %s", [str(message_id)])
         row = cur.fetchone()
         print(row) #for now just print the message
-        cur.execute("update message_queue set reader_id=NULL, state = "+str(int(messagestate.done)) + " where message_id ='" + str(message_id) + "'")
+        cur.execute("update message_queue set reader_id=NULL, state = %s where message_id = %s", (str(int(messagestate.decode)),str(message_id)))
+        print("message moved to next queue")
+
+
+class decode_queue:
+    def __init__(self, conn):
+        self.conn=conn
+
+    def process(self, message_id):  #this is code to actually unpack the message
+        cur = self.conn.cursor()
+        cur.execute("select message_queue from message_queue where message_id = %s ", [str(message_id)])
+        row = cur.fetchone()
+        print(row) #for now just print the message
+        cur.execute("update message_queue set reader_id=NULL, state = %s  where message_id = %s", (str(int(messagestate.done)),str(message_id)))
         print("message moved to done queue")
-
-
-
 
 class request_response:
     def __init__(self, rc, msg):
@@ -66,6 +76,7 @@ class storage_engine:
         self.reader_id= uuid.uuid1()
         self.rq=ready_queue(self.conn)
         self.uq=upload_queue(self.conn)
+        self.dq=decode_queue(self.conn)
         self.q = Queue()
 
 
@@ -79,7 +90,7 @@ class storage_engine:
 
     def next_message(self):
         cur = self.conn.cursor()
-        cur.execute("select message_id from message_queue where reader_id ='" + str(self.reader_id) + "'")
+        cur.execute("select message_id from message_queue where reader_id = %s ", [str(self.reader_id)])
         row = cur.fetchone()
         if row is None:
             return 0
@@ -88,14 +99,13 @@ class storage_engine:
 
     def get_state(self, id):
         cur = self.conn.cursor()
-        cur.execute("select state from message_queue where message_id ='" + str(id) + "'")
+        cur.execute("select state from message_queue where message_id = %s ",[str(id)])
         row = cur.fetchone()
         return row[0]
 
     def get_batch(self):
         cur = self.conn.cursor()
-        cur.execute("update message_queue set reader_id='" + str(self.reader_id) + "' where state <"+ str(int( messagestate.done)) + " and reader_id is NULL")
-
+        cur.execute("update message_queue set reader_id= %s where state < %s and reader_id is NULL", ( str(self.reader_id), int( messagestate.done)))
 
     def create_role(self, request):
         ui = request  #this is useinfo
@@ -194,6 +204,8 @@ class storage_engine:
             self.uq.process(message_id)
         elif (state==messagestate.ready):
             self.rq.process(message_id)
+        elif (state==messagestate.decode):
+            self.dq.process(message_id)
         elif (state==messagestate.done):
             pass
         else:

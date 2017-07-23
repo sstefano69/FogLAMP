@@ -36,10 +36,23 @@ async def main():
 
         se = eng.storage_engine("host='localhost' dbname='foglamp' user='foglamp' password='foglamp'")
 
+
+        #messages are added to the stoarge layer via the put_message(...) call
+        #noe* this is a NON blocking call. The mesage gets put on a queue and then returns immediately.
+        # seperate worker threads (multple readers and 1 writer), will add the messae to the storage layer.
+        #note* you DO NOT get messages.  The workflow engine is responsible for the workflow of the mesage.
+        #if you want to do    something to the message then you need to call that logic from wwithin the workflow.
+        #
+        #
+        #
+
         store.put_message(se,"blah1")   #add mesage to queue, workflow engine will process
         store.put_message(se,"blah2")
 
         # test some requests
+        # all requests to the storage layer are made via the put_request(...) call
+
+
         ret1 = store.put_request(se, requesttype.ping_engine, 'blah')
         print("result="+ret1.message)
 
