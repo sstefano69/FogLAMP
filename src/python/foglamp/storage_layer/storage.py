@@ -16,7 +16,6 @@ class requesttype(IntEnum):
     get_config=3
     create_user=4
     delete_user=5
-    get_reading=6
     delete_role=7,
     delete_all_roles=8,
     get_role=9,
