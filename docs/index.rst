@@ -10,6 +10,10 @@ Welcome to FogLAMP's documentation!
 
    build-tools
 
+   dev-tools
+
+   source/foglamp
+
 
 Indices and tables
 ==================
