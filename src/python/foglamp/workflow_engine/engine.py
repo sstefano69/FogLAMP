@@ -147,12 +147,6 @@ class storage_engine:
         ret = cur.execute("insert into users (uid,pwd,role_id) values( %s, %s, %s )", (ui.uid, ui.pwd, ui.role_id))
         return request_response(returncode.success, 'all good')
 
-    def set_config(self, request):
-        ci = request  # this is configinfo
-        # now create the user in the database
-        cur = self.conn.cursor()
-        ret = cur.execute("insert into configuration (key,description,value) values( %s, %s, %s )", (ci.key, ci.description, ci.value))
-        return request_response(returncode.success, 'all good')
 
     def delete_config(self, request):
         key = request  # this is the key
@@ -177,6 +171,20 @@ class storage_engine:
         else:
             value = row[0]
             return request_response(returncode.success, value)
+
+    def set_config(self, request):
+        ci = request  # this is configinfo
+        # check tooo see if key exists, if it does then update, else insert.
+        key = ci.key
+        ret = self.get_config( key)
+        if (ret.return_code == returncode.success):
+            cur = self.conn.cursor()
+            ret2 = cur.execute("insert into configuration (key,description,value) values( %s, %s, %s )", (ci.key, ci.description, ci.value))
+        else:
+            cur = self.conn.cursor()
+            ret3 = cur.execute("insert into configuration (key,description,value) values( %s, %s, %s )", (ci.key, ci.description, ci.value))
+
+        return request_response(returncode.success, 'all good')
 
     def process_request(self, reqtype, request):
         if (reqtype == requesttype.ping_engine):
