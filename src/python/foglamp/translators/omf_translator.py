@@ -58,14 +58,15 @@ import aiopg
 import aiopg.sa
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
-from foglamp import statistics,configuration_manager
+from foglamp import statistics, configuration_manager
+
 # Module information
 __author__ = "${FULL_NAME}"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-# FIXME: we need to [SHOULD] move this to defaults.py! unless this also needs to be read from database
+# FIXME: it will be removed using the DB layer
 _DB_URL = 'postgresql:///foglamp'
 """DB references"""
 
@@ -114,12 +115,13 @@ _readings_tbl = sa.Table(
 # PI Server OMF reference - for detailed information
 # http://omf-docs.readthedocs.io/en/v1.0/Data_Msg_Sample.html#data-example
 
-_server_name = ""
+_event_loop = ""
+
 _relay_url = ""
 _producer_token = ""
 
 # The size of a block of readings to send in each transmission.
-_block_size = 50
+_block_size = 10
 
 # OMF objects creation
 _types = ""
@@ -143,14 +145,40 @@ _sensor_name_type = {}
 
 
 _DEFAULT_OMF_CONFIG = {
-    "relay_server_name": {
-        "description": "Host name/IP of OMF connector relay",
+    "URL": {
+        "description": "The URL of the PI Connector to send data to",
         "type": "string",
-        "default": "WIN-4M7ODKB0RH2"
-    }
+        "default": "http://WIN-4M7ODKB0RH2:8118/ingress/messages"
+    },
+    "producerToken": {
+        "description": "The producer token that represents this FogLAMP stream",
+        "type": "string",
+        "default": "omf_translator_b84"
+
+    },
+
+    # FIXME:
+    #
+    # "SensorDataKeys": {
+    #     "description": "#FIXME:",
+    #     "type": "string",
+    #     "default": ["x", "y", "z", "pressure", "lux", "humidity", "temperature",
+    #                 "object", "ambient", "left", "right", "magnet", "button"]
+    #
+    # },
+    # "OMFTypes": {
+    #     "description": "A JSON object that contains the OMF type definitions for this stream",
+    #     "type": "string",
+    #     "default": "JON"
+    # },
+
+
 }
 _CONFIG_CATEGORY_NAME = 'OMF_TRANS'
 _CONFIG_CATEGORY_DESCRIPTION = 'Configuration of OMF Translator plugin'
+
+_config = ""
+"""Configurations retrieved from the Configuration Manager"""
 
 
 # DB operations
@@ -160,6 +188,10 @@ _pg_cur = ""
 # statistics
 _num_sent = 0
 _num_unsent = 0
+
+_num_readings = 0
+_num_discarded_readings = 0
+
 
 def initialize_plugin():
     """Initializes the OMF plugin for the sending of blocks of readings to the PI Connector.
@@ -174,8 +206,9 @@ def initialize_plugin():
     """
 
     global _log
+    global _event_loop
+    global _config
 
-    global _server_name
     global _relay_url
     global _producer_token
     global _types
@@ -191,8 +224,12 @@ def initialize_plugin():
     global _OMF_types_definition
 
     try:
+        _event_loop.run_until_complete(configuration_manager.create_category(_CONFIG_CATEGORY_NAME, _DEFAULT_OMF_CONFIG,
+                                                                             _CONFIG_CATEGORY_DESCRIPTION))
+        _config = _event_loop.run_until_complete(configuration_manager.get_category_all_items(_CONFIG_CATEGORY_NAME))
+
         # URL
-        _relay_url = "http://" + _server_name + ":8118/ingress/messages"
+        _relay_url = _config['URL']['value']
 
         # OMF types definition - xxx
         _type_id = "150"
@@ -200,12 +237,13 @@ def initialize_plugin():
         _type_measurement_id = "type_measurement_" + _type_id
 
         # producerToken
-        _producer_token = "omf_translator_b81"
+        _producer_token = _config['producerToken']['value']
 
         # OMFTypes
+        # FIXME:
         _sensor_data_keys = ["x", "y", "z", "pressure", "lux", "humidity", "temperature",
                              "object", "ambient", "left", "right", "magnet", "button"]
-
+        # _sensor_data_keys = _config['producerToken']['SensorDataKeys']
         """Available proprieties in the reading field"""
 
         _sensor_types = ["TI_sensorTag_accelerometer",
@@ -953,6 +991,7 @@ async def send_info_to_omf():
 async def _update_statistics():
     global _num_readings
     global _num_discarded_readings
+
     await statistics.update_statistics_value('SENT', _num_sent)
     _num_readings = 0
     await statistics.update_statistics_value('UNSENT', _num_unsent)
@@ -962,22 +1001,18 @@ if __name__ == "__main__":
     setup_logger()
 
     prg_text = ", for Linux (x86_64)"
-    version = "1.0.24"
+    version = "1.0.26"
 
     start_message = "\n" + _module_name + " - Ver " + version + "" + prg_text + "\n" + __copyright__ + "\n"
     debug_msg_write("", "{0}".format(start_message))
     debug_msg_write("INFO", _message_list["i000002"])
-    event_loop = asyncio.get_event_loop()
-    event_loop.run_until_complete(configuration_manager.create_category(_CONFIG_CATEGORY_NAME, _DEFAULT_OMF_CONFIG,
-                                                                        _CONFIG_CATEGORY_DESCRIPTION))
-    config = event_loop.run_until_complete(configuration_manager.get_category_all_items(_CONFIG_CATEGORY_NAME))
-    _server_name = config['relay_server_name']['value']
+
+    _event_loop = asyncio.get_event_loop()
 
     initialize_plugin()
     omf_types_creation()
 
-
-    event_loop.run_until_complete(send_info_to_omf())
-    event_loop.run_until_complete(_update_statistics())
+    _event_loop.run_until_complete(send_info_to_omf())
+    _event_loop.run_until_complete(_update_statistics())
 
     debug_msg_write("INFO", _message_list["i000003"])
