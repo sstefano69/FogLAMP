@@ -9,34 +9,6 @@
 The information are sent in chunks,
 the table foglamp.streams and block_size are used for this handling
 
-Note :
-    - how to run :
-        - it could be executed as is without parameters
-
-    - consider the constant LOG_SCREEN : Enable/Disable screen messages
-
-    - this version reads rows from the foglamp.readings table
-    - it uses foglamp.streams to track the information to send
-    - block_size identifies the number of rows to send for each execution
-
-    - Temporary/Useful SQL code used for dev:
-
-        INSERT INTO foglamp.destinations(id,description, ts) VALUES (1,'OMF', now());
-
-        INSERT INTO foglamp.streams(id,destination_id,description, last_object,ts) VALUES (1,1,'OMF', 1,now());
-
-        # Useful for an execution
-        SELECT MAX(ID) FROM foglamp.readings WHERE id >= 93491;
-
-        UPDATE foglamp.streams SET last_object=106928, ts=now() WHERE id=1;
-
-        SELECT * FROM foglamp.streams;
-
-        SELECT * FROM foglamp.readings WHERE id > 98021 ORDER by USER_ts;
-
-        SELECT * FROM foglamp.readings WHERE id >= 98021 and reading ? 'lux' ORDER by USER_ts;
-
-
 .. todo::
    - # TODO: FOGL-203 - the current log mechanism should be substituted.
    - # TODO: FOGL-251 - it should evolve using the DB layer
@@ -70,8 +42,8 @@ __version__ = "${VERSION}"
 _DB_URL = 'postgresql:///foglamp'
 """DB references"""
 
-_LOG_SCREEN = True
-"""Enable/Disable screen messages"""
+_TRACE_EXECUTION = False
+"""Enable/Disable info/debug messages"""
 
 _module_name = "OMF Translator"
 
@@ -153,7 +125,7 @@ _DEFAULT_OMF_CONFIG = {
     "producerToken": {
         "description": "The producer token that represents this FogLAMP stream",
         "type": "string",
-        "default": "omf_translator_b84"
+        "default": "omf_translator_b88"
 
     },
 
@@ -603,12 +575,12 @@ def debug_msg_write(severity_message, message):
 
     global _log
 
-    if _LOG_SCREEN:
+    if _TRACE_EXECUTION:
         if severity_message == "":
             print("{0:}".format(message))
         else:
             print("{0:} - {1:<7} - {2} ".format(time.strftime("%Y-%m-%d %H:%M:%S:"), severity_message, message))
-    _log.debug(message)
+            _log.debug(message)
 
 
 def create_data_values_stream_message(target_stream_id, information_to_send):
@@ -1001,7 +973,7 @@ if __name__ == "__main__":
     setup_logger()
 
     prg_text = ", for Linux (x86_64)"
-    version = "1.0.26"
+    version = "1.0.28"
 
     start_message = "\n" + _module_name + " - Ver " + version + "" + prg_text + "\n" + __copyright__ + "\n"
     debug_msg_write("", "{0}".format(start_message))
