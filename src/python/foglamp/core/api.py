@@ -9,6 +9,7 @@ import re
 from aiohttp import web
 from foglamp import configuration_manager
 from foglamp.core import scheduler_db_services, statistics_db_services
+import psutil
 
 __author__ = "Amarendra K. Sinha, Ashish Jabble"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -18,7 +19,7 @@ __version__ = "${VERSION}"
 __start_time = time.time()
 
 _help = """
-    ------------------------------------------------------------------------------
+    -------------------------------------------------------------------------------
     | GET             | /foglamp/ping                                             |
 
     | GET             | /foglamp/categories                                       |
@@ -38,20 +39,83 @@ _help = """
 
     | GET             | /foglamp/statistics                                       |
     | GET             | /foglamp/statistics/history                               |
-    ------------------------------------------------------------------------------
+    -------------------------------------------------------------------------------
 """
+
+
+def _find_process_info(process_name):
+    """Find Process info"""
+
+    process = [proc for proc in psutil.process_iter() if proc.name() == process_name]
+
+    if len(process) == 0:
+        return None
+
+    return dict({
+        "pid": process[0].pid,
+        "status": process[0].status(),
+        "start_time": process[0].create_time(),
+        "cpu_percent": process[0].cpu_percent(interval=1.0),
+        "memory_percent": process[0].memory_percent(),
+        "system_disk_usage": psutil.disk_usage('/')
+    })
+
+
+def _prepare_process_info(_now, since_started):
+    """Prepare Json for detailed info"""
+
+    process_info = _find_process_info('foglamp')
+    result = process_info
+    if process_info is not None:
+        since_started_psutil = _now - process_info['start_time']
+        pid = process_info['pid']
+        process_status = process_info['status']
+        process_memory = process_info['memory_percent']
+        process_cpu_percent = process_info['cpu_percent']
+        system_disk_usage = process_info['system_disk_usage']
+        result = {'uptime': since_started,
+                  'process_info': {
+                      'uptime': since_started_psutil,
+                      'pid': pid,
+                      'status': process_status,
+                      'memory_percentage': process_memory,
+                      'cpu_percentage': process_cpu_percent
+                  }, 'system_info': {
+                'disk_usage': {
+                    'total': system_disk_usage.total,
+                    'used': system_disk_usage.used,
+                    'free': system_disk_usage.free,
+                    'percent': system_disk_usage.percent
+                }
+            }}
+
+    return result
 
 
 async def ping(request):
     """
+    Args:
+        request: details query param set to 1 for fetching more info
 
-    :param request:
-    :return: basic health information json payload
-    {'uptime': 32892} Time in seconds since FogLAMP started
+   Returns:
+        basic health information json payload
+
+   :Example:
+
+       For more detailed info use details query param
+
+       curl -X GET http://localhost:8082/foglamp/ping?details=1
     """
-    since_started = time.time() - __start_time
+    _now = time.time()
+    since_started = _now - __start_time
+    result = {'uptime': since_started}
 
-    return web.json_response({'uptime': since_started})
+    if 'details' in request.query:
+        detail_query_param = request.query['details']
+        if detail_query_param.isdigit() and detail_query_param == '1':
+            result = _prepare_process_info(_now, since_started)
+
+    return web.json_response(result)
 
 
 #################################
