@@ -93,7 +93,7 @@ _relay_url = ""
 _producer_token = ""
 
 # The size of a block of readings to send in each transmission.
-_block_size = 10
+_block_size = 1000
 
 # OMF objects creation
 _types = ""
@@ -125,7 +125,7 @@ _DEFAULT_OMF_CONFIG = {
     "producerToken": {
         "description": "The producer token that represents this FogLAMP stream",
         "type": "string",
-        "default": "omf_translator_b93"
+        "default": "omf_translator_b96"
 
     }
 }
@@ -143,9 +143,7 @@ _pg_cur = ""
 # statistics
 _num_sent = 0
 _num_unsent = 0
-
-_num_readings = 0
-_num_discarded_readings = 0
+"""rows unsent to OMF, for errors in the communication"""
 
 
 def initialize_plugin():
@@ -947,13 +945,9 @@ async def send_info_to_omf():
         raise Exception(message)
 
 async def _update_statistics():
-    global _num_readings
-    global _num_discarded_readings
 
     await statistics.update_statistics_value('SENT', _num_sent)
-    _num_readings = 0
-    await statistics.update_statistics_value('UNSENT', _num_unsent)
-    _num_discarded_readings = 0
+
 
 if __name__ == "__main__":
 
