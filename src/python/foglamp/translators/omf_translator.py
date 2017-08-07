@@ -608,9 +608,10 @@ def create_data_values_stream_message(target_stream_id, information_to_send):
 
     return data_values_json
 
-
 def send_omf_message_to_end_point(message_type, omf_data):
-    """Sends data for OMF - trying the operation
+    """Sends data for OMF - it retries the operation using a sleep time increased *2 for every retry
+
+    it logs a WARNING only at the end of the retry mechanism
 
     Args:
         message_type: possible values - Type | Container | Data
@@ -621,15 +622,15 @@ def send_omf_message_to_end_point(message_type, omf_data):
 
     """
 
-    max_retry = 5
-    sleep_time = 1
+    global _omf_max_retry
 
-    status = 0
-    retry = 1
-    loop_continue = True
+    sleep_time = _omf_retry_sleep_time
+
     message = ""
+    status = 0
+    num_retry = 1
 
-    while loop_continue:
+    while num_retry < _omf_max_retry:
         try:
             status = 0
             msg_header = {'producertoken': _producer_token,
@@ -638,33 +639,30 @@ def send_omf_message_to_end_point(message_type, omf_data):
                           'messageformat': 'JSON',
                           'omfversion': '1.0'}
 
-            response = requests.post(_relay_url, headers=msg_header, data=json.dumps(omf_data), verify=False,
+            omf_data_json = json.dumps(omf_data)
+
+            response = requests.post(_relay_url, headers=msg_header, data=omf_data_json, verify=False,
                                      timeout=30)
 
             _logger.debug("Response |{0}| message: |{1}| |{2}| ".format(message_type,
                                                                         response.status_code,
                                                                         response.text))
 
+            break
+
         except Exception as e:
             message = _message_list["e000007"].format(e)
             status = 1
 
-        if status == 0:
-            loop_continue = False
-
-        elif retry < max_retry:
-
             time.sleep(sleep_time)
-            retry += 1
-
-        else:
-            loop_continue = False
+            num_retry += 1
+            sleep_time *= 2
 
     if status != 0:
         _logger.warning(message)
         raise Exception(message)
 
-
+      
 def position_read():
     """Retrieves the starting point for the send operation
 
