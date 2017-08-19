@@ -76,12 +76,10 @@ class Ingest(object):
     """asyncio task for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _max_inserts_per_db_connection = 5
-    """Number of inserts to perform into the readings table in a single db_connection"""
     _max_db_connections = 5
     """Number of open database db_connections"""
-    _max_queued_inserts = 100
-    """Maximum pending inserts at any given time"""
+    _max_inserts_per_db_connection = 5
+    """Number of inserts to perform into the readings table in a single db_connection"""
 
     @classmethod
     async def start(cls):
@@ -91,12 +89,12 @@ class Ingest(object):
 
         # Read config
         """read config
-        _max_inserts_per_db_connection
         _max_db_connections
-        _max_queued_inserts
+        _max_inserts_per_db_connection
         """
-
-        cls._insert_queue = asyncio.Queue(maxsize=cls._max_queued_inserts)
+        cls._insert_queue = asyncio.Queue(
+                                maxsize=
+                                cls._max_db_connections*cls._max_inserts_per_db_connection*2)
 
         # Start asyncio tasks
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
