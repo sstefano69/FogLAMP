@@ -76,10 +76,10 @@ class Ingest(object):
     """asyncio task for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _max_inserts_per_transaction = 5
-    """Number of inserts to perform into the readings table in a single transaction"""
-    _max_transactions = 5
-    """Number of open database transactions"""
+    _max_inserts_per_db_connection = 5
+    """Number of inserts to perform into the readings table in a single db_connection"""
+    _max_db_connections = 5
+    """Number of open database db_connections"""
     _max_queued_inserts = 100
     """Maximum pending inserts at any given time"""
 
@@ -91,8 +91,8 @@ class Ingest(object):
 
         # Read config
         """read config
-        _max_inserts_per_transaction
-        _max_transactions
+        _max_inserts_per_db_connection
+        _max_db_connections
         _max_queued_inserts
         """
 
@@ -104,7 +104,7 @@ class Ingest(object):
         cls._insert_tasks = []
         cls._get_next_insert_tasks = []
 
-        for _ in range(0, cls._max_transactions-1):
+        for _ in range(0, cls._max_db_connections-1):
             cls._insert_tasks.append(asyncio.ensure_future(cls._insert_readings(_)))
             cls._get_next_insert_tasks.append(None)
 
@@ -126,11 +126,10 @@ class Ingest(object):
             if _ is not None:
                 _.cancel()
 
-        cls._get_next_insert_tasks = None
-
         for _ in cls._insert_tasks:
             await _
 
+        cls._get_next_insert_tasks = None
         cls._insert_tasks = None
         cls._insert_queue = None
 
@@ -176,14 +175,14 @@ class Ingest(object):
 
             try:
                 async with aiopg.sa.create_engine(_CONNECTION_STRING, minsize=1,
-                                                  maxsize=cls._max_transactions) as engine:
+                                                  maxsize=cls._max_db_connections) as engine:
                     async with engine.acquire() as conn:
                         # Get more inserts to perform, up to a total according to config
 
                         inserts = [insert]
                         insert = None
 
-                        for _ in range(2, cls._max_inserts_per_transaction):
+                        for _ in range(2, cls._max_inserts_per_db_connection):
                             try:
                                 inserts.append(cls._insert_queue.get_nowait())
                             except asyncio.QueueEmpty:
