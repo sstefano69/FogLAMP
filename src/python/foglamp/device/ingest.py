@@ -65,6 +65,10 @@ class Ingest(object):
     """Set to true when the server needs to stop"""
 
     _started = False
+    """True when the server has been started"""
+
+    _engine = None  # type: aiopg.sa.Engine
+    """Database connection pool"""
 
     _insert_queue = None  # type: asyncio.Queue
     """insert objects are added to this queue"""
@@ -76,7 +80,7 @@ class Ingest(object):
     """asyncio task for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _max_db_connections = 5
+    _max_db_connections = 4
     """Number of open database db_connections"""
     _max_inserts_per_db_connection = 5
     """Number of inserts to perform into the readings table in a single db_connection"""
@@ -118,6 +122,7 @@ class Ingest(object):
             return
 
         cls._stop = True
+
         await cls._insert_queue.join()
 
         for _ in cls._get_next_insert_tasks:
@@ -126,6 +131,8 @@ class Ingest(object):
 
         for _ in cls._insert_tasks:
             await _
+
+        cls._started = False
 
         cls._get_next_insert_tasks = None
         cls._insert_tasks = None
@@ -139,7 +146,10 @@ class Ingest(object):
         await cls._write_statistics_task
         cls._write_statistics_task = None
 
-        cls._started = False
+        if cls._engine is not None:
+            cls._engine.close()
+            cls._engine = None
+
         cls._stop = False
 
     @classmethod
@@ -172,33 +182,35 @@ class Ingest(object):
                     cls._get_next_insert_tasks[task_num] = None
 
             try:
-                async with aiopg.sa.create_engine(_CONNECTION_STRING, minsize=1,
-                                                  maxsize=cls._max_db_connections) as engine:
-                    async with engine.acquire() as conn:
-                        # Get more inserts to perform, up to a total according to config
+                if cls._engine is None:
+                    cls._engine = await aiopg.sa.create_engine(_CONNECTION_STRING,
+                                                               minsize=cls._max_db_connections)
 
-                        inserts = [insert]
-                        insert = None
+                async with cls._engine.acquire() as conn:
+                    # Get more inserts to perform, up to a total according to config
 
-                        for _ in range(2, cls._max_inserts_per_db_connection):
-                            try:
-                                inserts.append(cls._insert_queue.get_nowait())
-                            except asyncio.QueueEmpty:
-                                break
+                    inserts = [insert]
+                    insert = None
 
-                        for _ in inserts:
-                            try:
-                                await conn.execute(_)
-                                cls._readings += 1
-                            except psycopg2.IntegrityError as e:
-                                # This exception is also thrown for NULL violations
-                                _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
-                                             _, e)
-                            except Exception:
-                                cls._discarded_readings += 1
-                                _LOGGER.exception('Insert failed: %s', _)
-                            finally:
-                                cls._insert_queue.task_done()
+                    for _ in range(2, cls._max_inserts_per_db_connection):
+                        try:
+                            inserts.append(cls._insert_queue.get_nowait())
+                        except asyncio.QueueEmpty:
+                            break
+
+                    for _ in inserts:
+                        try:
+                            await conn.execute(_)
+                            cls._readings += 1
+                        except psycopg2.IntegrityError as e:
+                            # This exception is also thrown for NULL violations
+                            _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
+                                         _, e)
+                        except Exception:
+                            cls._discarded_readings += 1
+                            _LOGGER.exception('Insert failed: %s', _)
+                        finally:
+                            cls._insert_queue.task_done()
             except Exception:
                 cls._discarded_readings += 1
                 _LOGGER.exception('Database connection failed: %s', _CONNECTION_STRING)
