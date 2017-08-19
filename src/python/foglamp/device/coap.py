@@ -9,7 +9,7 @@
 import asyncio
 
 import aiocoap.resource
-from cbor2 import loads
+import cbor2
 
 from foglamp import configuration_manager
 from foglamp import logger
@@ -62,12 +62,12 @@ async def start():
     root.add_resource(('.well-known', 'core'),
                       aiocoap.resource.WKCResource(root.get_resources_as_linkheader))
 
-    root.add_resource(('other', uri), IngestReadings())
+    root.add_resource(('other', uri), CoAPIngest())
 
     asyncio.Task(aiocoap.Context.create_server_context(root, bind=('::', int(port))))
 
 
-class IngestReadings(aiocoap.resource.Resource):
+class CoAPIngest(aiocoap.resource.Resource):
     """Handles incoming sensor readings from CoAP"""
 
     @staticmethod
@@ -108,10 +108,10 @@ class IngestReadings(aiocoap.resource.Resource):
         increment_discarded_counter = True
 
         try:
-            payload = loads(request.payload)
+            payload = cbor2.loads(request.payload)
 
             if not isinstance(payload, dict):
-                raise ValueError("Payload type must be dict:\n{}".format(payload))
+                raise ValueError('Payload must be a dictionary')
 
             asset = payload.get('asset')
             timestamp = payload.get('timestamp')
@@ -142,6 +142,7 @@ class IngestReadings(aiocoap.resource.Resource):
         except Exception as e:
             if increment_discarded_counter:
                 Ingest.increment_discarded_readings()
+
             _LOGGER.exception("Add readings failed for payload:\n%s", payload)
 
             if isinstance(e, ValueError) or isinstance(e, TypeError):
@@ -149,4 +150,4 @@ class IngestReadings(aiocoap.resource.Resource):
             else:
                 message = ''
 
-            return aiocoap.Message(payload=message.encode("utf-8"), code=code)
+            return aiocoap.Message(payload=message.encode('utf-8'), code=code)

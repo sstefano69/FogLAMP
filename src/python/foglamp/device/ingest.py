@@ -72,7 +72,7 @@ class Ingest(object):
     _insert_tasks = None  # type: List[asyncio.Task]
     """asyncio task for :meth:`_insert_readings`"""
 
-    _insert_queue_get_tasks = None  # type: List[asyncio.Task]
+    _get_next_insert_tasks = None  # type: List[asyncio.Task]
     """asyncio task for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
@@ -102,11 +102,11 @@ class Ingest(object):
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
 
         cls._insert_tasks = []
-        cls._insert_queue_get_tasks = []
+        cls._get_next_insert_tasks = []
 
         for _ in range(0, cls._max_transactions-1):
             cls._insert_tasks.append(asyncio.ensure_future(cls._insert_readings(_)))
-            cls._insert_queue_get_tasks.append(None)
+            cls._get_next_insert_tasks.append(None)
 
         cls._started = True
 
@@ -114,7 +114,7 @@ class Ingest(object):
     async def stop(cls):
         """Stops the server
 
-        Saves any pending statistics are saved
+        Flushes pending statistics and readings to the database
         """
         if cls._stop or not cls._started:
             return
@@ -122,11 +122,11 @@ class Ingest(object):
         cls._stop = True
         await cls._insert_queue.join()
 
-        for _ in cls._insert_queue_get_tasks:
+        for _ in cls._get_next_insert_tasks:
             if _ is not None:
                 _.cancel()
 
-        cls._insert_queue_get_tasks = None
+        cls._get_next_insert_tasks = None
 
         for _ in cls._insert_tasks:
             await _
@@ -143,11 +143,73 @@ class Ingest(object):
         cls._write_statistics_task = None
 
         cls._started = False
+        cls._stop = False
 
     @classmethod
     def increment_discarded_readings(cls):
         """Increments the number of discarded sensor readings"""
         cls._discarded_readings += 1
+
+    @classmethod
+    async def _insert_readings(cls, task_num):
+        """Inserts rows into the readings table using _insert_queue"""
+        _LOGGER.info('Insert readings loop started')
+
+        while True:
+            insert = None
+
+            try:
+                insert = cls._insert_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                if cls._stop:
+                    break
+                # Wait for an item in the queue
+                waiter = asyncio.ensure_future(cls._insert_queue.get())
+                cls._get_next_insert_tasks[task_num] = waiter
+
+                try:
+                    insert = await waiter
+                except asyncio.CancelledError:
+                    break
+                finally:
+                    cls._get_next_insert_tasks[task_num] = None
+
+            try:
+                async with aiopg.sa.create_engine(_CONNECTION_STRING, minsize=1,
+                                                  maxsize=cls._max_transactions) as engine:
+                    async with engine.acquire() as conn:
+                        # Get more inserts to perform, up to a total according to config
+
+                        inserts = [insert]
+                        insert = None
+
+                        for _ in range(2, cls._max_inserts_per_transaction):
+                            try:
+                                inserts.append(cls._insert_queue.get_nowait())
+                            except asyncio.QueueEmpty:
+                                break
+
+                        for _ in inserts:
+                            try:
+                                await conn.execute(_)
+                                cls._readings += 1
+                            except psycopg2.IntegrityError as e:
+                                # This exception is also thrown for NULL violations
+                                _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
+                                             _, e)
+                            except Exception:
+                                cls._discarded_readings += 1
+                                _LOGGER.exception('Insert failed: %s', _)
+                            finally:
+                                cls._insert_queue.task_done()
+            except Exception:
+                cls._discarded_readings += 1
+                _LOGGER.exception('Database connection failed: %s', _CONNECTION_STRING)
+            finally:
+                if insert is not None:
+                    cls._insert_queue.task_done()
+
+        _LOGGER.info('Insert readings loop stopped')
 
     @classmethod
     async def _write_statistics(cls):
@@ -250,59 +312,3 @@ class Ingest(object):
         _LOGGER.debug('Database command: %s', insert)
         await cls._insert_queue.put(insert)
 
-    @classmethod
-    async def _insert_readings(cls, task_num):
-        """Inserts rows into the readings table using _insert_queue"""
-        _LOGGER.info('Insert readings loop started')
-
-        while True:
-            insert = None
-
-            try:
-                insert = cls._insert_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                if cls._stop:
-                    break
-                # Wait for an item in the queue
-                waiter = asyncio.ensure_future(cls._insert_queue.get())
-                cls._insert_queue_get_tasks.put(task_num, waiter)
-                try:
-                    insert = await waiter
-                except asyncio.CancelledError:
-                    break
-                finally:
-                    cls._insert_queue_get_tasks.put(task_num, None)
-
-            inserts = [insert]
-
-            try:
-                # How to test an insert error:
-                # key = 6
-                async with aiopg.sa.create_engine(_CONNECTION_STRING, minsize=1,
-                                                  maxsize=cls._max_transactions) as engine:
-                    async with engine.acquire() as conn:
-                        # Get more inserts to perform, up to a total according to config
-
-                        for _ in range(2, cls._max_inserts_per_transaction):
-                            try:
-                                inserts.append(cls._insert_queue.get_nowait())
-                            except asyncio.QueueEmpty:
-                                break
-
-                        for insert in inserts:
-                            try:
-                                await conn.execute(insert)
-                            except psycopg2.IntegrityError as e:
-                                # This exception is also thrown for NULL violations
-                                _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
-                                             insert, e)
-                            except Exception:
-                                _LOGGER.exception('Insert failed: %s', insert)
-                                raise
-
-                        cls._readings += len(inserts)
-            except Exception:
-                cls._discarded_readings += len(inserts)
-                _LOGGER.exception('Database connection failed: %s', _CONNECTION_STRING)
-
-        _LOGGER.info('Insert readings loop stopped')
