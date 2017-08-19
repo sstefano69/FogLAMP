@@ -82,8 +82,6 @@ class Ingest(object):
     # Configuration
     _max_db_connections = 4
     """Number of open database db_connections"""
-    _max_inserts_per_db_connection = 5
-    """Number of inserts to perform into the readings table in a single db_connection"""
 
     @classmethod
     async def start(cls):
@@ -95,11 +93,9 @@ class Ingest(object):
         """read config
         _max_db_connections
          *** validate > 0 ***
-        _max_inserts_per_db_connection
         """
         cls._insert_queue = asyncio.Queue(
-                                maxsize=
-                                cls._max_db_connections*cls._max_inserts_per_db_connection*2)
+                                maxsize=cls._max_db_connections*10)
 
         # Start asyncio tasks
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
@@ -189,25 +185,24 @@ class Ingest(object):
                                                                minsize=cls._max_db_connections)
 
                 async with cls._engine.acquire() as conn:
-                    for _ in range(cls._max_inserts_per_db_connection):
-                        if insert is None:
-                            try:
-                                insert = cls._insert_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                break
-
-                        _LOGGER.debug('Database command: %s', insert)
-
+                    if insert is None:
                         try:
-                            await conn.execute(insert)
-                            cls._readings += 1
-                        except psycopg2.IntegrityError as e:
-                            # This exception is also thrown for NULL violations
-                            _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
-                                         insert, e)
+                            insert = cls._insert_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
 
-                        insert = None
-                        cls._insert_queue.task_done()
+                    _LOGGER.debug('Database command: %s', insert)
+
+                    try:
+                        await conn.execute(insert)
+                        cls._readings += 1
+                    except psycopg2.IntegrityError as e:
+                        # This exception is also thrown for NULL violations
+                        _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
+                                     insert, e)
+
+                    insert = None
+                    cls._insert_queue.task_done()
             except Exception:
                 cls._discarded_readings += 1
                 cls._insert_queue.task_done()
