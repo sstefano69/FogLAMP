@@ -76,8 +76,8 @@ class IngestReadings(aiocoap.resource.Resource):
 
         Args:
             request:
-                The payload is a cbor-encoded array that is supposed to decode to JSON
-                conforming to the following:
+                The payload is a cbor-encoded array that decodes to JSON
+                similar to the following:
 
                 .. code-block:: python
 
@@ -143,4 +143,10 @@ class IngestReadings(aiocoap.resource.Resource):
             if increment_discarded_counter:
                 Ingest.increment_discarded_readings()
             _LOGGER.exception("Add readings failed for payload:\n%s", payload)
-            return aiocoap.Message(payload=str(e).encode("utf-8"), code=code)
+
+            if isinstance(e, ValueError) or isinstance(e, TypeError):
+                message = str(e)
+            else:
+                message = ''
+
+            return aiocoap.Message(payload=message.encode("utf-8"), code=code)
