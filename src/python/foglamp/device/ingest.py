@@ -74,10 +74,10 @@ class Ingest(object):
     """insert objects are added to this queue"""
 
     _insert_tasks = None  # type: List[asyncio.Task]
-    """asyncio task for :meth:`_insert_readings`"""
+    """asyncio tasks for :meth:`_insert_readings`"""
 
     _get_next_insert_tasks = None  # type: List[asyncio.Task]
-    """asyncio task for asyncio.Queue.get called by :meth:`_insert_readings`"""
+    """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
     _max_db_connections = 4
@@ -94,6 +94,7 @@ class Ingest(object):
         # Read config
         """read config
         _max_db_connections
+         *** validate > 0 ***
         _max_inserts_per_db_connection
         """
         cls._insert_queue = asyncio.Queue(
@@ -106,7 +107,7 @@ class Ingest(object):
         cls._insert_tasks = []
         cls._get_next_insert_tasks = []
 
-        for _ in range(0, cls._max_db_connections-1):
+        for _ in range(cls._max_db_connections):
             cls._insert_tasks.append(asyncio.ensure_future(cls._insert_readings(_)))
             cls._get_next_insert_tasks.append(None)
 
@@ -170,6 +171,7 @@ class Ingest(object):
             except asyncio.QueueEmpty:
                 if cls._stop:
                     break
+
                 # Wait for an item in the queue
                 waiter = asyncio.ensure_future(cls._insert_queue.get())
                 cls._get_next_insert_tasks[task_num] = waiter
@@ -187,36 +189,29 @@ class Ingest(object):
                                                                minsize=cls._max_db_connections)
 
                 async with cls._engine.acquire() as conn:
-                    # Get more inserts to perform, up to a total according to config
+                    for _ in range(cls._max_inserts_per_db_connection):
+                        if insert is None:
+                            try:
+                                insert = cls._insert_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                break
 
-                    inserts = [insert]
-                    insert = None
+                        _LOGGER.debug('Database command: %s', insert)
 
-                    for _ in range(2, cls._max_inserts_per_db_connection):
                         try:
-                            inserts.append(cls._insert_queue.get_nowait())
-                        except asyncio.QueueEmpty:
-                            break
-
-                    for _ in inserts:
-                        try:
-                            await conn.execute(_)
+                            await conn.execute(insert)
                             cls._readings += 1
                         except psycopg2.IntegrityError as e:
                             # This exception is also thrown for NULL violations
                             _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
-                                         _, e)
-                        except Exception:
-                            cls._discarded_readings += 1
-                            _LOGGER.exception('Insert failed: %s', _)
-                        finally:
-                            cls._insert_queue.task_done()
+                                         insert, e)
+
+                        insert = None
+                        cls._insert_queue.task_done()
             except Exception:
                 cls._discarded_readings += 1
-                _LOGGER.exception('Database connection failed: %s', _CONNECTION_STRING)
-            finally:
-                if insert is not None:
-                    cls._insert_queue.task_done()
+                cls._insert_queue.task_done()
+                _LOGGER.exception('Insert failed: %s', insert)
 
         _LOGGER.info('Insert readings loop stopped')
 
@@ -318,6 +313,5 @@ class Ingest(object):
                                read_key=key,
                                user_ts=timestamp)
 
-        _LOGGER.debug('Database command: %s', insert)
         await cls._insert_queue.put(insert)
 

@@ -57,3 +57,15 @@ class TestIngestReadings(object):
             assert return_val.code == expected
 
         await Ingest.stop()
+
+    @pytest.mark.asyncio
+    async def test_bad_cbor(self):
+        await Ingest.start()
+
+        sv = CoAPIngest()
+        request = MagicMock()
+        request.payload = 5
+        return_val = await sv.render_post(request)
+        assert return_val.code == CoAP_CODES.BAD_REQUEST
+
+        await Ingest.stop()
