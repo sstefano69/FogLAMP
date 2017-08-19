@@ -292,6 +292,10 @@ class Ingest(object):
 
             if key is not None and not isinstance(key, uuid.UUID):
                 # Validate
+                if not isinstance(key, str):
+                    raise TypeError('key must be a uuid.UUID or a str')
+                # If key is not a string, uuid.UUID throws an Exception that appears to
+                # be a TypeError but can not be caught as a TypeError
                 key = uuid.UUID(key)
 
             if readings is None:
@@ -307,11 +311,7 @@ class Ingest(object):
         # Comment out to test IntegrityError
         # key = '123e4567-e89b-12d3-a456-426655440000'
 
-        insert = _READINGS_TBL.insert()
-        insert = insert.values(asset_code=asset,
-                               reading=readings,
-                               read_key=key,
-                               user_ts=timestamp)
+        insert = _READINGS_TBL.insert().values(asset_code=asset, reading=readings, read_key=key,
+                                               user_ts=timestamp)
 
         await cls._insert_queue.put(insert)
-

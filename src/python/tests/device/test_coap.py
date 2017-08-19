@@ -38,8 +38,9 @@ class TestIngestReadings(object):
          'readings': {'a': 5}}, CoAP_CODES.VALID),
         ({}, CoAP_CODES.BAD_REQUEST),
         ({'timestamp': '2017-01-01T00:00:00Z'}, CoAP_CODES.BAD_REQUEST),
+        ({'timestamp': 5}, CoAP_CODES.BAD_REQUEST),
     ]
-    """An array of tuples consisting of (payload, expected status code)
+    """An array of (payload, expected status code)
     """
 
     @pytest.mark.parametrize("payload, expected", __REQUESTS)
@@ -52,7 +53,7 @@ class TestIngestReadings(object):
         request = MagicMock()
         request.payload = dumps(payload)
         repeat = 10 if expected == CoAP_CODES.VALID else 1
-        for _ in range(1, repeat):
+        for _ in range(repeat):
             return_val = await sv.render_post(request)
             assert return_val.code == expected
 
