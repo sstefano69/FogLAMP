@@ -94,8 +94,7 @@ class Ingest(object):
         _max_db_connections
          *** validate > 0 ***
         """
-        cls._insert_queue = asyncio.Queue(
-                                maxsize=cls._max_db_connections*10)
+        cls._insert_queue = asyncio.Queue(maxsize=cls._max_db_connections*10)
 
         # Start asyncio tasks
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
@@ -213,7 +212,7 @@ class Ingest(object):
     @classmethod
     async def _write_statistics(cls):
         """Periodically commits collected readings statistics"""
-        _LOGGER.info("Device statistics writer started")
+        _LOGGER.info('Device statistics writer started')
 
         while not cls._stop:
             # stop() calls _write_statistics_sleep_task.cancel().
@@ -238,9 +237,9 @@ class Ingest(object):
                 cls._discarded_readings = 0
             # TODO catch real exception
             except Exception:
-                _LOGGER.exception("An error occurred while writing readings statistics")
+                _LOGGER.exception('An error occurred while writing readings statistics')
 
-        _LOGGER.info("Device statistics writer stopped")
+        _LOGGER.info('Device statistics writer stopped')
 
     @classmethod
     async def add_readings(cls, asset: str, timestamp: Union[str, datetime.datetime],
@@ -263,23 +262,23 @@ class Ingest(object):
                 An invalid value was provided
         """
         if cls._stop:
-            raise RuntimeError("Service is stopping")
+            raise RuntimeError('The device server is stopping')
         # Assume the code beyond this point doesn't 'await'
         # to make sure that the queue is not appended to
         # when cls._stop is True
 
         if not cls._started:
-            raise RuntimeError('The ingest server has not started')
+            raise RuntimeError('The device server was not started')
 
         try:
             if asset is None:
-                raise ValueError("asset can not be None")
+                raise ValueError('asset can not be None')
 
             if not isinstance(asset, str):
                 asset = str(asset)
 
             if timestamp is None:
-                raise ValueError("timestamp can not be None")
+                raise ValueError('timestamp can not be None')
 
             if not isinstance(timestamp, datetime.datetime):
                 # validate
@@ -288,7 +287,7 @@ class Ingest(object):
             if key is not None and not isinstance(key, uuid.UUID):
                 # Validate
                 if not isinstance(key, str):
-                    raise TypeError('key must be a uuid.UUID or a str')
+                    raise TypeError('key must be a uuid.UUID or a string')
                 # If key is not a string, uuid.UUID throws an Exception that appears to
                 # be a TypeError but can not be caught as a TypeError
                 key = uuid.UUID(key)
@@ -298,7 +297,7 @@ class Ingest(object):
             elif not isinstance(readings, dict):
                 # Postgres allows values like 5 be converted to JSON
                 # Downstream processors can not handle this
-                raise TypeError("readings must be a dict")
+                raise TypeError('readings must be a dictionary')
         except Exception:
             cls.increment_discarded_readings()
             raise
