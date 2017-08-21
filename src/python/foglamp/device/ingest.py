@@ -8,6 +8,7 @@
 
 import asyncio
 import datetime
+import logging
 import uuid
 from typing import List, Union
 
@@ -26,7 +27,8 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_LOGGER = logger.setup(__name__)  # logging.Logger
+_LOGGER = logger.setup(__name__)  # type: logging.Logger
+_DEBUG = _LOGGER.isEnabledFor(logging.DEBUG)
 
 _READINGS_TBL = sa.Table(
     'readings',
@@ -80,8 +82,11 @@ class Ingest(object):
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _max_db_connections = 4
-    """Number of open database db_connections"""
+    _max_db_connections = 1
+    """Maximum number of open database db_connections"""
+
+    _max_inserts_per_transaction = 1
+    """Maximum number of inserts per transaction"""
 
     @classmethod
     async def start(cls):
@@ -94,7 +99,9 @@ class Ingest(object):
         _max_db_connections
          *** validate > 0 ***
         """
-        cls._insert_queue = asyncio.Queue(maxsize=cls._max_db_connections*10)
+        cls._insert_queue = asyncio.Queue(maxsize=
+                                          max(30, (2+cls._max_db_connections)*(
+                                              cls._max_inserts_per_transaction)))
 
         # Start asyncio tasks
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
@@ -178,34 +185,61 @@ class Ingest(object):
                 finally:
                     cls._get_next_insert_tasks[task_num] = None
 
+            num_inserts = 1
+
             try:
                 if cls._engine is None:
                     cls._engine = await aiopg.sa.create_engine(_CONNECTION_STRING,
                                                                minsize=cls._max_db_connections)
 
+                # Consume all entries in the queue
+                # Create a transaction for every X inserts
                 async with cls._engine.acquire() as conn:
-                    if insert is None:
-                        try:
-                            insert = cls._insert_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
+                    while True:
+                        if insert is None:
+                            try:
+                                insert = cls._insert_queue.get_nowait()
+                                num_inserts += 1
+                            except asyncio.QueueEmpty:
+                                break
 
-                    _LOGGER.debug('Database command: %s', insert)
+                        async with conn.begin() as tx:
+                            for _ in range(cls._max_inserts_per_transaction):
+                                if insert is None:
+                                    try:
+                                        insert = cls._insert_queue.get_nowait()
+                                        num_inserts += 1
+                                    except asyncio.QueueEmpty:
+                                        break
 
-                    try:
-                        await conn.execute(insert)
-                        cls._readings += 1
-                    except psycopg2.IntegrityError as e:
-                        # This exception is also thrown for NULL violations
-                        _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
-                                     insert, e)
+                                insert = _READINGS_TBL.insert().values(asset_code=insert[0],
+                                                                       user_ts=insert[1],
+                                                                       read_key=insert[2],
+                                                                       reading=insert[3])
 
-                    insert = None
-                    cls._insert_queue.task_done()
+                                if _DEBUG:
+                                    _LOGGER.debug('Database command: %s', insert)
+
+                                try:
+                                    await conn.execute(insert)
+                                except psycopg2.IntegrityError as e:
+                                    # This exception is also thrown for NULL violations
+                                    if cls._max_inserts_per_transaction == 1:
+                                        num_inserts = 0
+                                    else:
+                                        raise
+
+                                cls._insert_queue.task_done()
+                                insert = None
+
+                        # Commit
+                        cls._readings += num_inserts
+                        num_inserts = 0
             except Exception:
-                cls._discarded_readings += 1
+                # Rollback
+                cls._discarded_readings += num_inserts
                 cls._insert_queue.task_done()
-                _LOGGER.exception('Insert failed: %s', insert)
+                _LOGGER.exception('Insert failed')
 
         _LOGGER.info('Insert readings loop stopped')
 
@@ -305,7 +339,8 @@ class Ingest(object):
         # Comment out to test IntegrityError
         # key = '123e4567-e89b-12d3-a456-426655440000'
 
-        insert = _READINGS_TBL.insert().values(asset_code=asset, reading=readings, read_key=key,
-                                               user_ts=timestamp)
+        if _DEBUG:
+            _LOGGER.debug('Queue size: %s', cls._insert_queue.qsize())
 
-        await cls._insert_queue.put(insert)
+        await cls._insert_queue.put((asset, timestamp, key, readings))
+
