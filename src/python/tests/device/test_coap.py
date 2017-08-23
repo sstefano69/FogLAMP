@@ -33,7 +33,7 @@ class TestIngestReadings(object):
         ({'timestamp': '2017-01-01T00:00:00Z', 'asset': 'test'}, CoAP_CODES.VALID),
         ({'timestamp': '2017-01-01T00:00:00Z', 'asset': 'test',
           'key': '123e4567-e89b-12d3-a456-426655440000'}, CoAP_CODES.VALID),
-        ({'timestamp': '2017-01-01T00:00:00Z', 'asset': 5}, CoAP_CODES.VALID),
+        ({'timestamp': '2017-01-01T00:00:00Z', 'asset': 'test'}, CoAP_CODES.VALID),
         ({'timestamp': '2017-01-01T00:00:00Z', 'asset': 'test2',
          'readings': {'a': 5}}, CoAP_CODES.VALID),
         ({}, CoAP_CODES.BAD_REQUEST),

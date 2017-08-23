@@ -27,6 +27,7 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 _LOGGER = logger.setup(__name__)  # type: logging.Logger
+# _LOGGER = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
 _DEBUG = _LOGGER.isEnabledFor(logging.DEBUG)
 
 _READINGS_TBL = sa.Table(
@@ -315,13 +316,14 @@ class Ingest(object):
 
         if not cls._started:
             raise RuntimeError('The device server was not started')
+            # cls._logger = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
 
         try:
             if asset is None:
                 raise ValueError('asset can not be None')
 
             if not isinstance(asset, str):
-                asset = str(asset)
+                raise TypeError('asset must be a string')
 
             if timestamp is None:
                 raise ValueError('timestamp can not be None')
