@@ -8,14 +8,14 @@
 
 import asyncio
 import datetime
+import logging
 import uuid
 from typing import List, Union
 
 import aiopg.sa
 import dateutil.parser
-import psycopg2
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
+import sqlalchemy.dialects.postgresql as pg
 
 from foglamp import logger
 from foglamp import statistics
@@ -26,7 +26,9 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_LOGGER = logger.setup(__name__)  # logging.Logger
+_LOGGER = logger.setup(__name__)  # type: logging.Logger
+# _LOGGER = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
+_DEBUG = _LOGGER.isEnabledFor(logging.DEBUG)
 
 _READINGS_TBL = sa.Table(
     'readings',
@@ -34,7 +36,7 @@ _READINGS_TBL = sa.Table(
     sa.Column('asset_code', sa.types.VARCHAR(50)),
     sa.Column('read_key', sa.types.VARCHAR(50)),
     sa.Column('user_ts', sa.types.TIMESTAMP),
-    sa.Column('reading', JSONB))
+    sa.Column('reading', pg.JSONB))
 """Defines the table that data will be inserted into"""
 
 _CONNECTION_STRING = "dbname='foglamp'"
@@ -73,17 +75,24 @@ class Ingest(object):
     _insert_queue = None  # type: asyncio.Queue
     """insert objects are added to this queue"""
 
-    _insert_tasks = None  # type: List[asyncio.Task]
+    _insert_readings_tasks = None  # type: List[asyncio.Task]
     """asyncio tasks for :meth:`_insert_readings`"""
 
-    _get_next_insert_tasks = None  # type: List[asyncio.Task]
+    _insert_readings_sleep_tasks = None  # type: List[asyncio.Task]
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _max_db_connections = 4
-    """Number of open database db_connections"""
-    _max_inserts_per_db_connection = 5
-    """Number of inserts to perform into the readings table in a single db_connection"""
+    _max_db_connections = 1
+    """Maximum number of open database db_connections"""
+
+    _min_inserts_per_transaction = 10
+    """Maximum number of inserts per transaction"""
+
+    _max_inserts_per_transaction = 30
+    """Maximum number of inserts per transaction"""
+
+    _insert_queue_flush_seconds = 1
+    """Number of seconds to wait before flushing the queue"""
 
     @classmethod
     async def start(cls):
@@ -94,22 +103,22 @@ class Ingest(object):
         # Read config
         """read config
         _max_db_connections
+        _min_inserts_per_transaction
+        _max_inserts_per_transaction
          *** validate > 0 ***
-        _max_inserts_per_db_connection
         """
-        cls._insert_queue = asyncio.Queue(
-                                maxsize=
-                                cls._max_db_connections*cls._max_inserts_per_db_connection*2)
+        cls._insert_queue = asyncio.Queue(maxsize=max(30, (2+cls._max_db_connections)*(
+                                                          cls._max_inserts_per_transaction)))
 
         # Start asyncio tasks
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
 
-        cls._insert_tasks = []
-        cls._get_next_insert_tasks = []
+        cls._insert_readings_tasks = []
+        cls._insert_readings_sleep_tasks = []
 
         for _ in range(cls._max_db_connections):
-            cls._insert_tasks.append(asyncio.ensure_future(cls._insert_readings(_)))
-            cls._get_next_insert_tasks.append(None)
+            cls._insert_readings_tasks.append(asyncio.ensure_future(cls._insert_readings(_)))
+            cls._insert_readings_sleep_tasks.append(None)
 
         cls._started = True
 
@@ -126,17 +135,17 @@ class Ingest(object):
 
         await cls._insert_queue.join()
 
-        for _ in cls._get_next_insert_tasks:
+        for _ in cls._insert_readings_sleep_tasks:
             if _ is not None:
                 _.cancel()
 
-        for _ in cls._insert_tasks:
+        for _ in cls._insert_readings_tasks:
             await _
 
         cls._started = False
 
-        cls._get_next_insert_tasks = None
-        cls._insert_tasks = None
+        cls._insert_readings_sleep_tasks = None
+        cls._insert_readings_tasks = None
         cls._insert_queue = None
 
         # Write statistics
@@ -162,8 +171,17 @@ class Ingest(object):
     async def _insert_readings(cls, task_num):
         """Inserts rows into the readings table using _insert_queue"""
         _LOGGER.info('Insert readings loop started')
-
         while True:
+            if not cls._stop and cls._insert_queue.qsize() < cls._max_inserts_per_transaction:
+                waiter = asyncio.ensure_future(asyncio.sleep(cls._insert_queue_flush_seconds))
+                cls._insert_readings_sleep_tasks[task_num] = waiter
+                try:
+                    await waiter
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    cls._insert_readings_sleep_tasks[task_num] = None
+
             insert = None
 
             try:
@@ -174,42 +192,65 @@ class Ingest(object):
 
                 # Wait for an item in the queue
                 waiter = asyncio.ensure_future(cls._insert_queue.get())
-                cls._get_next_insert_tasks[task_num] = waiter
+                cls._insert_readings_sleep_tasks[task_num] = waiter
 
                 try:
                     insert = await waiter
                 except asyncio.CancelledError:
                     break
                 finally:
-                    cls._get_next_insert_tasks[task_num] = None
+                    cls._insert_readings_sleep_tasks[task_num] = None
+
+            num_inserts = 1
 
             try:
                 if cls._engine is None:
                     cls._engine = await aiopg.sa.create_engine(_CONNECTION_STRING,
                                                                minsize=cls._max_db_connections)
 
+                # Consume all entries in the queue
+                # Create a transaction for every X inserts
                 async with cls._engine.acquire() as conn:
-                    for _ in range(cls._max_inserts_per_db_connection):
+                    while True:
                         if insert is None:
                             try:
                                 insert = cls._insert_queue.get_nowait()
+                                num_inserts += 1
                             except asyncio.QueueEmpty:
                                 break
 
-                        _LOGGER.debug('Database command: %s', insert)
+                        async with conn.begin() as tx:
+                            for _ in range(cls._max_inserts_per_transaction):
+                                if insert is None:
+                                    try:
+                                        insert = cls._insert_queue.get_nowait()
+                                        num_inserts += 1
+                                    except asyncio.QueueEmpty:
+                                        break
 
-                        try:
-                            await conn.execute(insert)
-                            cls._readings += 1
-                        except psycopg2.IntegrityError as e:
-                            # This exception is also thrown for NULL violations
-                            _LOGGER.info('Duplicate key inserting sensor values.\n%s\n%s',
-                                         insert, e)
+                                insert = pg.insert(_READINGS_TBL).values(asset_code=insert[0],
+                                                                         user_ts=insert[1],
+                                                                         read_key=insert[2],
+                                                                         reading=insert[3])
 
-                        insert = None
-                        cls._insert_queue.task_done()
+                                insert = insert.on_conflict_do_nothing(index_elements=['read_key'])
+
+                                if _DEBUG:
+                                    _LOGGER.debug('Database command: %s', insert)
+
+                                await conn.execute(insert)
+                                cls._insert_queue.task_done()
+                                insert = None
+
+                        # Transaction is committed
+                        cls._readings += num_inserts
+                        num_inserts = 0
+
+                        if cls._insert_queue.qsize() < cls._max_inserts_per_transaction:
+                            break
             except Exception:
-                cls._discarded_readings += 1
+                # Rollback
+                cls._discarded_readings += num_inserts
                 cls._insert_queue.task_done()
                 _LOGGER.exception('Insert failed: %s', insert)
 
@@ -218,7 +259,7 @@ class Ingest(object):
     @classmethod
     async def _write_statistics(cls):
         """Periodically commits collected readings statistics"""
-        _LOGGER.info("Device statistics writer started")
+        _LOGGER.info('Device statistics writer started')
 
         while not cls._stop:
             # stop() calls _write_statistics_sleep_task.cancel().
@@ -243,9 +284,9 @@ class Ingest(object):
                 cls._discarded_readings = 0
             # TODO catch real exception
             except Exception:
-                _LOGGER.exception("An error occurred while writing readings statistics")
+                _LOGGER.exception('An error occurred while writing readings statistics')
 
-        _LOGGER.info("Device statistics writer stopped")
+        _LOGGER.info('Device statistics writer stopped')
 
     @classmethod
     async def add_readings(cls, asset: str, timestamp: Union[str, datetime.datetime],
@@ -268,23 +309,24 @@ class Ingest(object):
                 An invalid value was provided
         """
         if cls._stop:
-            raise RuntimeError("Service is stopping")
+            raise RuntimeError('The device server is stopping')
         # Assume the code beyond this point doesn't 'await'
         # to make sure that the queue is not appended to
         # when cls._stop is True
 
         if not cls._started:
-            raise RuntimeError('The ingest server has not started')
+            raise RuntimeError('The device server was not started')
+            # cls._logger = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
 
         try:
             if asset is None:
-                raise ValueError("asset can not be None")
+                raise ValueError('asset can not be None')
 
             if not isinstance(asset, str):
-                asset = str(asset)
+                raise TypeError('asset must be a string')
 
             if timestamp is None:
-                raise ValueError("timestamp can not be None")
+                raise ValueError('timestamp can not be None')
 
             if not isinstance(timestamp, datetime.datetime):
                 # validate
@@ -293,7 +335,7 @@ class Ingest(object):
             if key is not None and not isinstance(key, uuid.UUID):
                 # Validate
                 if not isinstance(key, str):
-                    raise TypeError('key must be a uuid.UUID or a str')
+                    raise TypeError('key must be a uuid.UUID or a string')
                 # If key is not a string, uuid.UUID throws an Exception that appears to
                 # be a TypeError but can not be caught as a TypeError
                 key = uuid.UUID(key)
@@ -303,7 +345,7 @@ class Ingest(object):
             elif not isinstance(readings, dict):
                 # Postgres allows values like 5 be converted to JSON
                 # Downstream processors can not handle this
-                raise TypeError("readings must be a dict")
+                raise TypeError('readings must be a dictionary')
         except Exception:
             cls.increment_discarded_readings()
             raise
@@ -311,7 +353,8 @@ class Ingest(object):
         # Comment out to test IntegrityError
         # key = '123e4567-e89b-12d3-a456-426655440000'
 
-        insert = _READINGS_TBL.insert().values(asset_code=asset, reading=readings, read_key=key,
-                                               user_ts=timestamp)
+        if _DEBUG:
+            _LOGGER.debug('Queue size: %s', cls._insert_queue.qsize())
 
-        await cls._insert_queue.put(insert)
+        await cls._insert_queue.put((asset, timestamp, key, readings))
+
