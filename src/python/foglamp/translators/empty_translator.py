@@ -9,10 +9,10 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_module_name = "Empty translator"
+_MODULE_NAME = "Empty translator"
 
 
-def retrieve_plugin_info():
+def retrieve_plugin_info(_stream_id):
     """ Empty translator
 
     Returns:
@@ -22,7 +22,7 @@ def retrieve_plugin_info():
     """
 
     plugin_info = {
-        'name': _module_name,
+        'name': _MODULE_NAME,
         'version': "1.0.0",
         'type': "translator",
         'interface': "1.0",

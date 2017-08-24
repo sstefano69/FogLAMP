@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-
 # FOGLAMP_BEGIN
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
@@ -16,10 +15,14 @@ IMPORTANT NOTE : This current version is an empty skeleton.
 
 """
 
+import resource
+import datetime
+import sys
 import asyncio
 import time
 import json
 import requests
+import logging
 
 from foglamp import logger, configuration_manager
 
@@ -31,37 +34,41 @@ __version__ = "${VERSION}"
 
 _MODULE_NAME = "OMF Translator"
 
-_MESSAGE_LIST = {
+_PERFORMANCE_LOG = True
+
+_DEBUG_LEVEL = 0
+
+_MESSAGES_LIST = {
 
     # Information messages
     "i000001": " ",
-    "i000002": _MODULE_NAME + " - Started.",
-    "i000003": _MODULE_NAME + " - Execution completed.",
+    "i000002": "Started.",
+    "i000003": "Execution completed.",
 
     # Warning / Error messages
-    "e000001": _MODULE_NAME + " - cannot complete the operation.",
-    "e000002": _MODULE_NAME + " - cannot retrieve the starting point for sending operation.",
-    "e000003": _MODULE_NAME + " - cannot update the reached position.",
-    "e000004": _MODULE_NAME + " - cannot complete the sending operation.",
-    "e000005": _MODULE_NAME + " - cannot setup the logger - error details |{0}|",
+    "e000001": "cannot complete the operation.",
+    "e000002": "cannot retrieve the starting point for sending operation.",
+    "e000003": "cannot update the reached position.",
+    "e000004": "cannot complete the sending operation.",
+    "e000005": "cannot setup the logger - error details |{0}|",
 
-    "e000006": _MODULE_NAME + " - cannot initialize the plugin.",
-    "e000007": _MODULE_NAME + " - an error occurred during the OMF request - error details |{0}|",
-    "e000008": _MODULE_NAME + " - an error occurred during the OMF's objects creation.",
-    "e000009": _MODULE_NAME + " - cannot retrieve information about the sensor.",
-    "e000010": _MODULE_NAME + " - unable to extend the in memory structure with new data.",
-    "e000011": _MODULE_NAME + " - cannot create the OMF types.",
-    "e000012": _MODULE_NAME + " - unknown asset_code - asset |{0}| - error details |{1}|",
-    "e000013": _MODULE_NAME + " - cannot prepare sensor information for PICROMF - error details |{0}|",
-    "e000014": _MODULE_NAME + " - ",
+    "e000006": "cannot initialize the plugin.",
+    "e000007": "an error occurred during the OMF request - error details |{0}|",
+    "e000008": "an error occurred during the OMF's objects creation.",
+    "e000009": "cannot retrieve information about the sensor.",
+    "e000010": "unable to extend the in memory structure with new data.",
+    "e000011": "cannot create the OMF types.",
+    "e000012": "unknown asset_code - asset |{0}| - error details |{1}|",
+    "e000013": "cannot prepare sensor information for PICROMF - error details |{0}|",
+    "e000014": "",
 
-    "e000015": _MODULE_NAME + " - cannot update statistics.",
-    "e000016": _MODULE_NAME + " - ",
-    "e000017": _MODULE_NAME + " - cannot complete loading data into the memory.",
-    "e000018": _MODULE_NAME + " - cannot complete the initialization.",
-    "e000019": _MODULE_NAME + " - cannot complete the preparation of the in memory structure.",
-    "e000020": _MODULE_NAME + " - cannot complete the retrieval of the plugin information.",
-    "e000021": _MODULE_NAME + " - cannot complete the termination of the OMF translator.",
+    "e000015": "cannot update statistics.",
+    "e000016": "",
+    "e000017": "cannot complete loading data into the memory.",
+    "e000018": "cannot complete the initialization.",
+    "e000019": "cannot complete the preparation of the in memory structure.",
+    "e000020": "cannot complete the retrieval of the plugin information.",
+    "e000021": "cannot complete the termination of the OMF translator.",
 
 }
 """Messages used for Information, Warning and Error notice"""
@@ -140,9 +147,50 @@ _config = {
 }
 
 
+class URLFetchError(RuntimeError):
+    """ URLFetchError """
+    pass
+
+
 class PluginInitializeFailed(RuntimeError):
     """ PluginInitializeFailed """
     pass
+
+
+def performance_log(func):
+    """ Logs information for performance measurement """
+
+    # noinspection PyProtectedMember
+    def wrapper(*arg):
+        """ wrapper """
+
+        start = datetime.datetime.now()
+
+        if _PERFORMANCE_LOG:
+            _logger.info("{0} - PERFORMANCE - {1} START".format(_MODULE_NAME, sys._getframe().f_locals['func']))
+
+        res = func(*arg)
+
+        if _PERFORMANCE_LOG:
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+            memory_process = (usage[2])/1000
+
+            end = datetime.datetime.now()
+            delta = end - start
+            delta_milliseconds = int(delta.total_seconds() * 1000)
+
+            _logger.info("{0} - PERFORMANCE - {1} - milliseconds |{2:>6,}| - END"
+                         .format(_MODULE_NAME,
+                                 sys._getframe().f_locals['func'],
+                                 delta_milliseconds))
+            _logger.info("{0} - PERFORMANCE - {1} - memory MB |{2:>6,}| - END"
+                         .format(_MODULE_NAME,
+                                 sys._getframe().f_locals['func'],
+                                 memory_process))
+
+        return res
+
+    return wrapper
 
 
 def _configuration_retrieve(_stream_id):
@@ -175,7 +223,7 @@ def _configuration_retrieve(_stream_id):
         _config['StaticData'] = _config_from_manager['StaticData']['value']
 
     except Exception:
-        message = _MESSAGE_LIST["e000003"]
+        message = _MESSAGES_LIST["e000003"]
 
         _logger.exception(message)
         raise
@@ -195,10 +243,12 @@ def retrieve_plugin_info(_stream_id):
 
     try:
         # note : _module_name is used as __name__ refers to the Sending Process
-        _logger = logger.setup(_MODULE_NAME)
+        # FIXME: Development only
+        _logger = logger.setup(_MODULE_NAME, level=logging.DEBUG, destination=logger.CONSOLE)
+        # _logger = logger.setup(_MODULE_NAME)
 
     except Exception as e:
-        message = _MESSAGE_LIST["e000005"].format(str(e))
+        message = _MESSAGES_LIST["e000005"].format(str(e))
         current_time = time.strftime("%Y-%m-%d %H:%M:%S:")
 
         print ("{0} - ERROR - {1}".format(current_time, message))
@@ -217,7 +267,7 @@ def retrieve_plugin_info(_stream_id):
         }
 
     except Exception:
-        message = _MESSAGE_LIST["e000020"]
+        message = _MESSAGES_LIST["e000020"]
 
         _logger.exception(message)
         raise
@@ -241,7 +291,7 @@ def plugin_init():
         # raise
 
     except Exception:
-        message = _MESSAGE_LIST["e000006"]
+        message = _MESSAGES_LIST["e000006"]
 
         _logger.exception(message)
         raise PluginInitializeFailed
@@ -259,7 +309,7 @@ def plugin_shutdown():
         _logger.debug("{0} - plugin_shutdown".format(_MODULE_NAME))
 
     except Exception:
-        message = _MESSAGE_LIST["e000021"]
+        message = _MESSAGES_LIST["e000021"]
 
         _logger.exception(message)
         raise PluginInitializeFailed
@@ -279,22 +329,14 @@ def plugin_send(raw_data):
     data_sent = False
 
     try:
-        _logger.debug("{0} - _transform_in_memory_data START".format(_MODULE_NAME))
-
         data_available, new_position, num_sent = _transform_in_memory_data(data_to_send, raw_data)
 
-        _logger.debug("{0} - _transform_in_memory_data END".format(_MODULE_NAME))
-
         if data_available:
-            _logger.debug("{0} - _send_in_memory_data_to_picromf START".format(_MODULE_NAME))
-
             _send_in_memory_data_to_picromf("Data", data_to_send)
             data_sent = True
 
-            _logger.debug("{0} - _send_in_memory_data_to_picromf END".format(_MODULE_NAME))
-
     except Exception:
-        message = _MESSAGE_LIST["e000004"]
+        message = _MESSAGES_LIST["e000004"]
 
         _logger.exception(message)
         raise
@@ -302,6 +344,7 @@ def plugin_send(raw_data):
     return data_sent, new_position, num_sent
 
 
+@performance_log
 def _send_in_memory_data_to_picromf(message_type, omf_data):
     """Sends data to PICROMF - it retries the operation using a sleep time increased *2 for every retry
 
@@ -309,7 +352,7 @@ def _send_in_memory_data_to_picromf(message_type, omf_data):
 
     Args:
         message_type: possible values - Type | Container | Data
-        omf_data:     message to send
+        omf_data:     _message to send
 
     Raises:
         Exception: an error occurred during the OMF request
@@ -318,7 +361,7 @@ def _send_in_memory_data_to_picromf(message_type, omf_data):
 
     sleep_time = _config['OMFRetrySleepTime']
 
-    message = ""
+    _message = ""
     status = 0
     num_retry = 1
 
@@ -341,16 +384,18 @@ def _send_in_memory_data_to_picromf(message_type, omf_data):
 
             # FIXME: temporary/testing code
             if response.status_code == 400:
-                raise RuntimeError(response.text)
+                tmp_text = str(response.status_code) + " " + response.text
+                _message = _MESSAGES_LIST["e000007"].format(tmp_text)
+                raise URLFetchError(_message)
 
-            _logger.debug("Response |{0}| message: |{1}| |{2}| ".format(message_type,
-                                                                        response.status_code,
-                                                                        response.text))
+            _logger.debug("Response |{0}| _message: |{1}| |{2}| ".format(message_type,
+                                                                         response.status_code,
+                                                                         response.text))
 
             break
 
         except Exception as e:
-            message = _MESSAGE_LIST["e000007"].format(e)
+            _message = _MESSAGES_LIST["e000007"].format(e)
             status = 1
 
             time.sleep(sleep_time)
@@ -358,10 +403,12 @@ def _send_in_memory_data_to_picromf(message_type, omf_data):
             sleep_time *= 2
 
     if status != 0:
-        _logger.warning(message)
-        raise Exception(message)
+        _logger.warning(_message)
+        # FIXME:
+        raise TimeoutError(_message)
 
 
+@performance_log
 def _transform_in_memory_data(data_to_send, raw_data):
     """Transforms in memory data into a new structure that could be converted into JSON for PICROMF
 
@@ -394,7 +441,7 @@ def _transform_in_memory_data(data_to_send, raw_data):
                 tmp_type = _asset_code_type[asset_code]
 
             except Exception as e:
-                message = _MESSAGE_LIST["e000012"].format(tmp_type, e)
+                message = _MESSAGES_LIST["e000012"].format(tmp_type, e)
 
                 _logger.warning(message)
             else:
@@ -412,11 +459,11 @@ def _transform_in_memory_data(data_to_send, raw_data):
                 except Exception as e:
                     num_unsent += 1
 
-                    message = _MESSAGE_LIST["e000013"].format(e)
+                    message = _MESSAGES_LIST["e000013"].format(e)
                     _logger.warning(message)
 
     except Exception:
-        message = _MESSAGE_LIST["e000019"]
+        message = _MESSAGES_LIST["e000019"]
 
         _logger.exception(message)
         raise
@@ -440,15 +487,14 @@ def _transform_in_memory_row(data_to_send, row, target_stream_id):
     data_available = False
 
     try:
-        # FIXME:
-        # row_id = row[0]
-        # asset_code = row[1]
+        row_id = row[0]
+        asset_code = row[1]
         timestamp = row[2].isoformat()
         sensor_data = row[3]
 
-        # FIXME:
-        # _logger.debug("Stream ID : |{0}| Sensor ID : |{1}| Row ID : |{2}|  "
-        #              .format(target_stream_id, asset_code, str(row_id)))
+        if __debug__:
+            _logger.debug("Stream ID : |{0}| Sensor ID : |{1}| Row ID : |{2}|  "
+                          .format(target_stream_id, asset_code, str(row_id)))
 
         # Prepares new data for the PICROMF
         new_data = [
@@ -475,14 +521,15 @@ def _transform_in_memory_row(data_to_send, row, target_stream_id):
             # note : append produces an not properly constructed OMF message
             data_to_send.extend(new_data)
 
-            # FIXME:
-            # _logger.debug("in memory info |{0}| ".format(new_data))
+            if __debug__:
+                _logger.debug("in memory info |{0}| ".format(new_data))
+
         else:
-            message = _MESSAGE_LIST["e000009"]
+            message = _MESSAGES_LIST["e000009"]
             _logger.warning(message)
 
     except Exception:
-        message = _MESSAGE_LIST["e000010"]
+        message = _MESSAGES_LIST["e000010"]
 
         _logger.exception(message)
         raise
@@ -491,10 +538,12 @@ def _transform_in_memory_row(data_to_send, row, target_stream_id):
 if __name__ == "__main__":
     try:
         # note : _module_name is used as __name__ refers to the Sending Process
-        _logger = logger.setup(_MODULE_NAME)
+        # FIXME: Development only
+        _logger = logger.setup(_MODULE_NAME, level=logging.DEBUG, destination=logger.CONSOLE)
+        # _logger = logger.setup(_MODULE_NAME)
 
     except Exception as ex:
-        tmp_message = _MESSAGE_LIST["e000005"].format(str(ex))
+        tmp_message = _MESSAGES_LIST["e000005"].format(str(ex))
         tmp_current_time = time.strftime("%Y-%m-%d %H:%M:%S:")
 
         print ("{0} - ERROR - {1}".format(tmp_current_time, tmp_message))
@@ -503,7 +552,7 @@ if __name__ == "__main__":
         _event_loop = asyncio.get_event_loop()
 
     except Exception as ex:
-        tmp_message = _MESSAGE_LIST["e000006"].format(str(ex))
+        tmp_message = _MESSAGES_LIST["e000006"].format(str(ex))
 
         _logger.exception(tmp_message)
         raise
