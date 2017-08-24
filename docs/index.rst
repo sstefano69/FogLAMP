@@ -6,8 +6,6 @@ Welcome to FogLAMP's documentation!
 
    setup-installation
 
-   rest-service
-
    build-tools
 
    dev-tools
