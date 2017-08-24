@@ -85,14 +85,17 @@ class Ingest(object):
     _max_db_connections = 1
     """Maximum number of open database db_connections"""
 
-    _min_inserts_per_transaction = 10
+    _min_inserts_per_transaction = 100
     """Maximum number of inserts per transaction"""
 
-    _max_inserts_per_transaction = 30
+    _max_inserts_per_transaction = 500
     """Maximum number of inserts per transaction"""
 
     _insert_queue_flush_seconds = 1
     """Number of seconds to wait before flushing the queue"""
+
+    _max_insert_queue_size = 5000
+    """Maximum number of pending inserts before returning 'busy'"""
 
     @classmethod
     async def start(cls):
@@ -107,8 +110,7 @@ class Ingest(object):
         _max_inserts_per_transaction
          *** validate > 0 ***
         """
-        cls._insert_queue = asyncio.Queue(maxsize=max(30, (2+cls._max_db_connections)*(
-                                                          cls._max_inserts_per_transaction)))
+        cls._insert_queue = asyncio.Queue()
 
         # Start asyncio tasks
         cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
@@ -172,7 +174,8 @@ class Ingest(object):
         """Inserts rows into the readings table using _insert_queue"""
         _LOGGER.info('Insert readings loop started')
         while True:
-            if not cls._stop and cls._insert_queue.qsize() < cls._max_inserts_per_transaction:
+            if not cls._stop and cls._insert_queue.qsize() < cls._min_inserts_per_transaction:
+                _LOGGER.debug('** Waiting ** Queue size: %s', cls._insert_queue.qsize())
                 waiter = asyncio.ensure_future(asyncio.sleep(cls._insert_queue_flush_seconds))
                 cls._insert_readings_sleep_tasks[task_num] = waiter
                 try:
@@ -228,22 +231,25 @@ class Ingest(object):
                                     except asyncio.QueueEmpty:
                                         break
 
-                                insert = pg.insert(_READINGS_TBL).values(asset_code=insert[0],
-                                                                         user_ts=insert[1],
-                                                                         read_key=insert[2],
-                                                                         reading=insert[3])
-
-                                insert = insert.on_conflict_do_nothing(index_elements=['read_key'])
+                                insert_stmt = pg.insert(_READINGS_TBL).values(asset_code=insert[0],
+                                                                              user_ts=insert[1],
+                                                                              read_key=insert[2],
+                                                                              reading=insert[3])
 
                                 if _DEBUG:
-                                    _LOGGER.debug('Database command: %s', insert)
+                                    _LOGGER.debug('Database command: %s', insert_stmt)
 
-                                await conn.execute(insert)
+                                # insert_stmt can not be converted to string after this line
+                                insert_stmt = insert_stmt.on_conflict_do_nothing(
+                                                            index_elements=['read_key'])
+
+                                await conn.execute(insert_stmt)
                                 cls._insert_queue.task_done()
                                 insert = None
 
                         # Transaction is committed
                         cls._readings += num_inserts
+                        _LOGGER.debug('Batch size: %s', num_inserts)
                         num_inserts = 0
 
                         if cls._insert_queue.qsize() < cls._max_inserts_per_transaction:
@@ -252,6 +258,7 @@ class Ingest(object):
                 # Rollback
                 cls._discarded_readings += num_inserts
                 cls._insert_queue.task_done()
+                # insert_stmt can not be converted to string
                 _LOGGER.exception('Insert failed: %s', insert)
 
         _LOGGER.info('Insert readings loop stopped')
@@ -314,6 +321,10 @@ class Ingest(object):
         # to make sure that the queue is not appended to
         # when cls._stop is True
 
+        if cls._insert_queue.qsize() >= cls._max_insert_queue_size:
+            # TODO handle this differently.. coap handler needs a method to check this
+            return
+
         if not cls._started:
             raise RuntimeError('The device server was not started')
             # cls._logger = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
@@ -353,8 +364,7 @@ class Ingest(object):
         # Comment out to test IntegrityError
         # key = '123e4567-e89b-12d3-a456-426655440000'
 
-        if _DEBUG:
-            _LOGGER.debug('Queue size: %s', cls._insert_queue.qsize())
+        cls._insert_queue.put_nowait((asset, timestamp, key, readings))
 
-        await cls._insert_queue.put((asset, timestamp, key, readings))
+        #_LOGGER.debug('Queue size: %s', cls._insert_queue.qsize())
 

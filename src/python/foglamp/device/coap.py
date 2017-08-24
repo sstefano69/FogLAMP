@@ -64,7 +64,7 @@ async def start():
 
     root.add_resource(('other', uri), CoAPIngest())
 
-    asyncio.Task(aiocoap.Context.create_server_context(root, bind=('::', int(port))))
+    asyncio.ensure_future(aiocoap.Context.create_server_context(root, bind=('::', int(port))))
 
 
 class CoAPIngest(aiocoap.resource.Resource):
