@@ -24,7 +24,7 @@ def retrieve_plugin_info():
     plugin_info = {
         'name': _module_name,
         'version': "1.0.0",
-        'type': "empty",
+        'type': "translator",
         'interface': "1.0",
         'config': ""
     }
