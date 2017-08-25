@@ -94,6 +94,9 @@ class CoAPIngest(aiocoap.resource.Resource):
                         }
                     }
         """
+        if not Ingest.is_available():
+            return aiocoap.Message(payload='{"busy": true}'.encode('utf-8'),
+                                   code=aiocoap.numbers.codes.Code.VALID)
 
         # TODO: aiocoap handlers must be defensive about exceptions. If an exception
         # is raised out of a handler, it is permanently disabled by aiocoap.
@@ -151,3 +154,4 @@ class CoAPIngest(aiocoap.resource.Resource):
                 message = ''
 
             return aiocoap.Message(payload=message.encode('utf-8'), code=code)
+
