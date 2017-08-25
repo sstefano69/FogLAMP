@@ -90,13 +90,13 @@ class Ingest(object):
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _queue_count = 1
+    _queue_count = 3
     """Maximum number of open database connections"""
 
     _max_inserts_per_transaction = 100
     """Maximum number of inserts per transaction"""
 
-    _queue_flush_seconds = 1  # _queue_count*.1
+    _queue_flush_seconds = 5
     """Number of seconds to wait for a queue to reach _max_inserts_per_transaction"""
 
     _max_queue_size = (_queue_count+2)*_max_inserts_per_transaction
