@@ -33,6 +33,7 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
+_DEBUG_LOG = False
 _PERFORMANCE_LOG = True
 
 _MODULE_NAME = "Sending Process"
@@ -94,7 +95,7 @@ _DEFAULT_OMF_CONFIG = {
     "blockSize": {
         "description": "The size of a block of readings to send in each transmission.",
         "type": "integer",
-        "default": "4000"
+        "default": "5000"
         # "default": "10"
     },
     "sleepInterval": {
@@ -177,26 +178,19 @@ def performance_log(func):
 
         start = datetime.datetime.now()
 
-        if _PERFORMANCE_LOG:
-            _logger.info("{0} - PERFORMANCE - {1} START".format(_MODULE_NAME, sys._getframe().f_locals['func']))
-
+        # Code execution
         res = func(*arg)
 
         if _PERFORMANCE_LOG:
             usage = resource.getrusage(resource.RUSAGE_SELF)
             memory_process = (usage[2])/1000
 
-            end = datetime.datetime.now()
-            delta = end - start
+            delta = datetime.datetime.now() - start
             delta_milliseconds = int(delta.total_seconds() * 1000)
 
-            _logger.info("{0} - PERFORMANCE - {1} - milliseconds |{2:>6,}| - END"
-                         .format(_MODULE_NAME,
-                                 sys._getframe().f_locals['func'],
-                                 delta_milliseconds))
-            _logger.info("{0} - PERFORMANCE - {1} - memory MB |{2:>6,}| - END"
-                         .format(_MODULE_NAME,
-                                 sys._getframe().f_locals['func'],
+            _logger.info("PERFORMANCE - {0} - milliseconds |{1:>6,}| - memory MB |{2:>6,}|"
+                         .format(sys._getframe().f_locals['func'],
+                                 delta_milliseconds,
                                  memory_process))
 
         return res
@@ -590,6 +584,7 @@ def last_object_id_update(new_last_object_id):
         raise
 
 
+@performance_log
 def _send_data_block():
     """ sends a block of data to the destination using the configured plugin
 
@@ -712,8 +707,11 @@ if __name__ == "__main__":
 
     try:
         # FIXME: Development only
-        _logger = logger.setup(__name__, level=logging.DEBUG, destination=logger.CONSOLE)
-        # _logger = logger.setup(__name__)
+        if _DEBUG_LOG:
+            _logger = logger.setup(__name__, level=logging.DEBUG, destination=logger.CONSOLE)
+        else:
+            _logger = logger.setup(__name__, level=logging.INFO, destination=logger.CONSOLE)
+            # _logger = logger.setup(__name__)
 
     except Exception as ex:
         message = _MESSAGES_LIST["e000001"].format(str(ex))
