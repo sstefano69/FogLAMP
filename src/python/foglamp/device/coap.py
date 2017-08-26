@@ -130,26 +130,19 @@ class CoAPIngest(aiocoap.resource.Resource):
 
                 increment_discarded_counter = False
 
-                try:
-                    await Ingest.add_readings(asset=asset, timestamp=timestamp, key=key,
-                                              readings=readings)
+                await Ingest.add_readings(asset=asset, timestamp=timestamp, key=key,
+                                          readings=readings)
 
-                    # Success
-                    # TODO is payload required if it's empty?
-                    return aiocoap.Message(payload=''.encode("utf-8"),
-                                           code=aiocoap.numbers.codes.Code.VALID)
-                except (ValueError, TypeError):
-                    raise
-                except Exception:
-                    code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
-                    raise
-        except Exception as e:
-            if isinstance(e, ValueError) or isinstance(e, TypeError):
-                message = json.dumps({message: str(e)})
-            else:
-                _LOGGER.exception('Add readings failed')
+                # Success
+                code = aiocoap.numbers.codes.Code.VALID
+        except (ValueError, TypeError) as e:
+            message = json.dumps({message: str(e)})
+        except Exception:
+            code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
+            _LOGGER.exception('Add readings failed')
         finally:
             if increment_discarded_counter:
                 Ingest.increment_discarded_readings()
-            return aiocoap.Message(payload=message.encode('utf-8'), code=code)
+
+        return aiocoap.Message(payload=message.encode('utf-8'), code=code)
 

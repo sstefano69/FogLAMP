@@ -74,26 +74,14 @@ class Ingest(object):
     _insert_readings_wait_tasks = None  # type: List[asyncio.Task]
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
-    # 3/50/5 - 200
-    # 3/50/1 - 500
-    # 3/100/1 - 283
-    # 3/10/1 - 217
-    # 3/50/1 - 312
-    # 3/50/1 - 463
-    # 5/100/1 - 466
-    # 5/50/2 - 466
-    # 5/500/2 - 539
-    # 10/500/5 - 539
-    # 10/50/1 - 515
-    # 3/500/5 - 434
-    # 3/10/5 - 481
-    # 4/50/5 - 500
+    # 3/50/5  - 471
+    # 3/100/5 - 456
 
     # Configuration
-    _num_queues = 4
+    _num_queues = 3
     """Maximum number of insert queues. Each queue has its own database connection."""
 
-    _batch_size = 50
+    _batch_size = 100
     """Maximum number of rows in a batch of inserts"""
 
     _queue_flush_seconds = 5
