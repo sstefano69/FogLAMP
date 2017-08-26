@@ -74,21 +74,17 @@ class Ingest(object):
     _insert_readings_wait_tasks = None  # type: List[asyncio.Task]
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
-    # 3/50/5  - 471
-    # 3/100/5 - 456
-    # 3/100/5 - 664
-
     # Configuration
     _num_queues = 3
     """Maximum number of insert queues. Each queue has its own database connection."""
 
-    _batch_size = 100
+    _batch_size = 50
     """Maximum number of rows in a batch of inserts"""
 
-    _queue_flush_seconds = 5
+    _queue_flush_seconds = 1
     """Number of seconds to wait for a queue to reach the maximum batch size"""
 
-    _max_queue_size = 3*_batch_size
+    _max_queue_size = 5*_batch_size
     """Maximum number of items in a queue"""
 
     _max_insert_attempts = 60
@@ -198,15 +194,15 @@ class Ingest(object):
                 finally:
                     cls._insert_readings_wait_tasks[queue_index] = None
 
-            #inserts = [(insert[0], insert[1], insert[2], json.dumps(insert[3]))]
-            inserts = [insert]
+            inserts = [(insert[0], insert[1], insert[2], json.dumps(insert[3]))]
+            # inserts = [insert]
 
             for _ in range(1, cls._batch_size):
                 try:
                     insert = queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-                inserts.append(insert)
+                inserts.append((insert[0], insert[1], insert[2], json.dumps(insert[3])))
 
             while True:
                 try:
@@ -388,7 +384,7 @@ class Ingest(object):
         cls.is_available()
         queue_index = cls._current_queue_index
         queue = cls._queues[queue_index]
-        await queue.put((asset, timestamp, key, json.dumps(readings)))
+        await queue.put((asset, timestamp, key, readings))
 
         if queue.qsize() >= cls._batch_size:
             queue_index += 1
