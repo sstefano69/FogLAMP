@@ -381,11 +381,15 @@ class Ingest(object):
         # Comment out to test IntegrityError
         # key = '123e4567-e89b-12d3-a456-426655440000'
 
-        cls.is_available()
+        cls.is_available()  # Locate a queue that isn't maxed out
         queue_index = cls._current_queue_index
         queue = cls._queues[queue_index]
+
+        # There are more acks and fewer timeouts when readings is put in the queue
+        # instead of using json.dumps
         await queue.put((asset, timestamp, key, readings))
 
+        # When the current queue is full, move on to the next queue
         if queue.qsize() >= cls._batch_size:
             queue_index += 1
             if queue_index >= cls._num_queues:
