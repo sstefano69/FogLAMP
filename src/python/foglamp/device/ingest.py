@@ -25,8 +25,8 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-# _LOGGER = logger.setup(__name__)  # type: logging.Logger
-_LOGGER = logger.setup(__name__, level=logging.DEBUG)  # type: logging.Logger
+_LOGGER = logger.setup(__name__)  # type: logging.Logger
+# _LOGGER = logger.setup(__name__, level=logging.DEBUG)  # type: logging.Logger
 # _LOGGER = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
 
 _STATISTICS_WRITE_FREQUENCY_SECONDS = 5
@@ -76,6 +76,7 @@ class Ingest(object):
 
     # 3/50/5  - 471
     # 3/100/5 - 456
+    # 3/100/5 - 664
 
     # Configuration
     _num_queues = 3
@@ -313,7 +314,7 @@ class Ingest(object):
                 cls._current_queue_index = queue_index
                 return True
 
-        _LOGGER.info('Unavailable')
+        _LOGGER.warning('Unavailable')
         return False
 
     @classmethod
