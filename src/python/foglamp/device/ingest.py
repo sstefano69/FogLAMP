@@ -12,10 +12,9 @@ import logging
 import uuid
 from typing import List, Union
 
-import aiopg.sa
+import asyncpg
 import dateutil.parser
-import sqlalchemy as sa
-import sqlalchemy.dialects.postgresql as pg
+import json
 
 from foglamp import logger
 from foglamp import statistics
@@ -26,20 +25,10 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_LOGGER = logger.setup(__name__)  # type: logging.Logger
-# _LOGGER = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
-_DEBUG = _LOGGER.isEnabledFor(logging.DEBUG)
+# _LOGGER = logger.setup(__name__)  # type: logging.Logger
+_LOGGER = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
 
-_READINGS_TBL = sa.Table(
-    'readings',
-    sa.MetaData(),
-    sa.Column('asset_code', sa.types.VARCHAR(50)),
-    sa.Column('read_key', sa.types.VARCHAR(50)),
-    sa.Column('user_ts', sa.types.TIMESTAMP),
-    sa.Column('reading', pg.JSONB))
-"""Defines the table that data will be inserted into"""
-
-_CONNECTION_STRING = "dbname='foglamp'"
+_CONNECTION_STRING = "postgres://foglamp"
 
 _STATISTICS_WRITE_FREQUENCY_SECONDS = 5
 
@@ -74,9 +63,6 @@ class Ingest(object):
     _started = False
     """True when the server has been started"""
 
-    _engine = None  # type: aiopg.sa.Engine
-    """Database connection pool"""
-
     _queues = None  # type: List[asyncio.Queue]
     """insert objects are added to these queues"""
 
@@ -93,10 +79,10 @@ class Ingest(object):
     _queue_count = 3
     """Maximum number of open database connections"""
 
-    _max_inserts_per_transaction = 100
+    _max_inserts_per_transaction = 25
     """Maximum number of inserts per transaction"""
 
-    _queue_flush_seconds = 5
+    _queue_flush_seconds = 1
     """Number of seconds to wait for a queue to reach _max_inserts_per_transaction"""
 
     _max_queue_size = (_queue_count+2)*_max_inserts_per_transaction
@@ -139,11 +125,6 @@ class Ingest(object):
             if _ is not None:
                 _.cancel()
 
-        for _ in cls._queues:
-            await _.join()
-
-        _LOGGER.info("All queues flushed")
-
         for _ in cls._insert_readings_tasks:
             await _
 
@@ -161,10 +142,6 @@ class Ingest(object):
         await cls._write_statistics_task
         cls._write_statistics_task = None
 
-        if cls._engine is not None:
-            cls._engine.close()
-            cls._engine = None
-
         cls._stop = False
 
     @classmethod
@@ -172,109 +149,119 @@ class Ingest(object):
         """Increments the number of discarded sensor readings"""
         cls._discarded_readings += 1
 
+    """
+    @staticmethod
+    def _escape(_: str)-> str
+        Escapes a string to be compatible with COPY IN
+        return _.translate(str.maketrans({"\\": "\\\\",
+                                          "\t": "\\\t",
+                                          "\r": "\\\r",
+                                          "\n": "\\\n"})
+    """
+
+    """
+    @classmethod 
+    async def pg_copyto(conn: apgConnection, inserts: str) -> None:
+        sr1 = await conn.exec("COPY readings FROM stdin;")
+        # Close result object
+        close(sr1)
+
+        cr1 = await conn.copyTo(cast[pointer](addr inserts[0]), len(inserts).int32)
+        # Close result object
+        close(cr1)
+    """
+
     @classmethod
-    async def _insert_readings(cls, queue_num):
+    async def _insert_readings(cls, queue_index):
         """Inserts rows into the readings table using _queue"""
         _LOGGER.info('Insert readings loop started')
 
-        queue = cls._queues[queue_num]
+        queue = cls._queues[queue_index]
+        loop_ctr = 10*cls._queue_flush_seconds
+        connection = None  #
 
         while True:
             # Wait for the maximum number of rows
-            for _ in range(10*cls._queue_flush_seconds):
+            for _ in range(loop_ctr):
                 if cls._stop:
                     break
                 if queue.qsize() >= cls._max_inserts_per_transaction:
+                    if queue_index == cls._current_queue_index:
+                        cls._current_queue_index += 1
+                        if cls._current_queue_index >= cls._queue_count:
+                            cls._current_queue_index = 0
                     break
-                # _LOGGER.debug('Waiting: Queue index: %s Queue size: %s',
-                #               queue_num, queue.qsize())
-                #waiter = asyncio.ensure_future(asyncio.sleep(cls._queue_flush_seconds))
-                #cls._insert_readings_wait_tasks[queue_num] = waiter
-                #try:
-                    #await waiter
-                #except asyncio.CancelledError:
-                    #pass
-                #finally:
-                    #cls._insert_readings_wait_tasks[queue_num] = None
+                _LOGGER.debug('Waiting: Queue index: %s Queue size: %s',
+                              queue_index, queue.qsize())
                 await asyncio.sleep(.1)
 
             insert = None
 
+            # Wait for the first entry
             try:
                 insert = queue.get_nowait()
-                queue.task_done()
             except asyncio.QueueEmpty:
                 if cls._stop:
                     break
 
                 # Wait for an item in the queue
                 waiter = asyncio.ensure_future(queue.get())
-                cls._insert_readings_wait_tasks[queue_num] = waiter
+                cls._insert_readings_wait_tasks[queue_index] = waiter
 
                 try:
                     insert = await waiter
-                    queue.task_done()
                 except asyncio.CancelledError:
-                    break
+                    pass
                 finally:
-                    cls._insert_readings_wait_tasks[queue_num] = None
+                    cls._insert_readings_wait_tasks[queue_index] = None
 
-            num_inserts = 1
+            if insert is None:
+                try:
+                    insert = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    if cls._stop:
+                        break
+                    continue
+
+            inserts = [(insert[0], str(insert[1]), str(insert[2]), json.dumps(insert[3]))]
+
+            while len(inserts) < cls._max_inserts_per_transaction:
+                try:
+                    insert = queue.get_nowait()
+                    inserts.append((insert[0], str(insert[1]), str(insert[2]),
+                                    json.dumps(insert[3])))
+                except asyncio.QueueEmpty:
+                    break
+
+            # insert_str = ''
+            # for _ in inserts:
+            # insert_str.append("{}\t{}\t{}\t{}\n".format(
+            #_escape(_[0]), _[1], _[2], _escape(dumps(_[3])))))
 
             try:
-                if cls._engine is None:
-                    cls._engine = await aiopg.sa.create_engine(_CONNECTION_STRING,
-                                                               minsize=cls._queue_count)
+                if connection is None:
+                    connection = await asyncpg.connect(database='foglamp')
+                    await connection.execute('create temp table t_readings ('
+                                             'asset_code character varying(50),'
+                                             'user_ts timestamp(6) with time zone,'
+                                             'read_key uuid,'
+                                             'reading jsonb)')
+                else:
+                    await connection.execute('delete from t_readings')
 
-                # Consume all entries in the queue
-                # Create a transaction for every X inserts
-                async with cls._engine.acquire() as conn:
-                    while True:
-                        if insert is None:
-                            try:
-                                insert = queue.get_nowait()
-                                queue.task_done()
-                                num_inserts += 1
-                            except asyncio.QueueEmpty:
-                                break
+                await connection.copy_records_to_table(
+                    table_name='t_readings',
+                    records=inserts)
 
-                        async with conn.begin() as tx:
-                            for _ in range(cls._max_inserts_per_transaction):
-                                if insert is None:
-                                    try:
-                                        insert = queue.get_nowait()
-                                        queue.task_done()
-                                        num_inserts += 1
-                                    except asyncio.QueueEmpty:
-                                        break
+                await connection.execute('insert into readings select * from t_readings '
+                                         'on conflict do nothing')
 
-                                insert_stmt = pg.insert(_READINGS_TBL).values(asset_code=insert[0],
-                                                                              user_ts=insert[1],
-                                                                              read_key=insert[2],
-                                                                              reading=insert[3])
-
-                                # _LOGGER.debug('Database command: %s', insert_stmt)
-
-                                # insert_stmt can not be converted to string after this line
-                                insert_stmt = insert_stmt.on_conflict_do_nothing(
-                                                            index_elements=['read_key'])
-
-                                await conn.execute(insert_stmt)
-                                insert = None
-
-                        # Transaction is committed
-                        cls._readings += num_inserts
-                        # _LOGGER.debug('Queue index: %s Num inserts: %s', queue_num, num_inserts)
-                        num_inserts = 0
-
-                        if queue.qsize() < cls._max_inserts_per_transaction:
-                            # Give the connection back to the pool
-                            break
-            except Exception:
-                # Rollback
-                cls._discarded_readings += num_inserts
-                # insert_stmt can not be converted to string
-                _LOGGER.exception('Insert failed: %s', insert)
+                cls._readings += len(inserts)
+                _LOGGER.debug('Queue index: %s Num inserts: %s', queue_index, len(inserts))
+            except Exception as e:
+                connection = None
+                cls._discarded_readings += len(inserts)
+                _LOGGER.exception('Insert failed')
 
         _LOGGER.info('Insert readings loop stopped')
 
@@ -315,25 +302,25 @@ class Ingest(object):
         if cls._stop:
             return False
 
-        queue_num = cls._current_queue_index
-        if cls._queues[queue_num].qsize() < cls._max_inserts_per_transaction:
+        queue_index = cls._current_queue_index
+        if cls._queues[queue_index].qsize() < cls._max_inserts_per_transaction:
             return True
 
         for _ in range(cls._queue_count):
-            queue_num += 1
-            if queue_num >= cls._queue_count:
-                queue_num = 0
-            if cls._queues[queue_num].qsize() < cls._max_inserts_per_transaction:
-                cls._current_queue_index = queue_num
+            queue_index += 1
+            if queue_index >= cls._queue_count:
+                queue_index = 0
+            if cls._queues[queue_index].qsize() < cls._max_inserts_per_transaction:
+                cls._current_queue_index = queue_index
                 return True
 
         for _ in range(cls._queue_count):
-            if cls._queues[queue_num].qsize() < cls._max_queue_size:
-                cls._current_queue_index = queue_num
+            if cls._queues[queue_index].qsize() < cls._max_queue_size:
+                cls._current_queue_index = queue_index
                 return True
-            queue_num += 1
-            if queue_num >= cls._queue_count:
-                queue_num = 0
+            queue_index += 1
+            if queue_index >= cls._queue_count:
+                queue_index = 0
 
         # _LOGGER.debug("Not available")
         return False
@@ -416,7 +403,9 @@ class Ingest(object):
         # key = '123e4567-e89b-12d3-a456-426655440000'
 
         queue = cls._queues[cls._current_queue_index]
-        queue.put_nowait((asset, timestamp, key, readings))
+        row = (asset, timestamp, key, readings)
 
-        # _LOGGER.debug('Queue index: %s Queue size: %s', queue_num, queue.qsize())
+        queue.put_nowait(row)
+
+        _LOGGER.debug('Queue index: %s Queue size: %s', cls._current_queue_index, queue.qsize())
 
