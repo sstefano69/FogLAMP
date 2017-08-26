@@ -7,6 +7,7 @@
 """CoAP handler for sensor readings"""
 
 import asyncio
+import json
 
 import aiocoap.resource
 import cbor2
@@ -94,10 +95,6 @@ class CoAPIngest(aiocoap.resource.Resource):
                         }
                     }
         """
-        if not Ingest.is_available():
-            return aiocoap.Message(payload='{"busy": true}'.encode('utf-8'),
-                                   code=aiocoap.numbers.codes.Code.VALID)
-
         # TODO: aiocoap handlers must be defensive about exceptions. If an exception
         # is raised out of a handler, it is permanently disabled by aiocoap.
         # Therefore, Exception is caught instead of specific exceptions.
@@ -107,51 +104,52 @@ class CoAPIngest(aiocoap.resource.Resource):
         # and will be moved to a .rst file
 
         code = aiocoap.numbers.codes.Code.BAD_REQUEST
-        payload = None
         increment_discarded_counter = True
+        message = ''
 
         try:
-            payload = cbor2.loads(request.payload)
+            if not Ingest.is_available():
+                message = '{"busy": true}'
+                code = aiocoap.numbers.codes.Code.VALID
+            else:
+                payload = cbor2.loads(request.payload)
 
-            if not isinstance(payload, dict):
-                raise ValueError('Payload must be a dictionary')
+                if not isinstance(payload, dict):
+                    raise ValueError('Payload must be a dictionary')
 
-            asset = payload.get('asset')
-            timestamp = payload.get('timestamp')
+                asset = payload.get('asset')
+                timestamp = payload.get('timestamp')
 
-            key = payload.get('key')
+                key = payload.get('key')
 
-            # readings and sensor_readings are optional
-            try:
-                readings = payload['readings']
-            except KeyError:
-                readings = payload.get('sensor_values')  # sensor_values is deprecated
+                # readings and sensor_readings are optional
+                try:
+                    readings = payload['readings']
+                except KeyError:
+                    readings = payload.get('sensor_values')  # sensor_values is deprecated
 
-            increment_discarded_counter = False
+                increment_discarded_counter = False
 
-            try:
-                await Ingest.add_readings(asset=asset, timestamp=timestamp, key=key,
-                                          readings=readings)
+                try:
+                    await Ingest.add_readings(asset=asset, timestamp=timestamp, key=key,
+                                              readings=readings)
 
-                # Success
-                # TODO is payload required if it's empty?
-                return aiocoap.Message(payload=''.encode("utf-8"),
-                                       code=aiocoap.numbers.codes.Code.VALID)
-            except (ValueError, TypeError):
-                raise
-            except Exception:
-                code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
-                raise
+                    # Success
+                    # TODO is payload required if it's empty?
+                    return aiocoap.Message(payload=''.encode("utf-8"),
+                                           code=aiocoap.numbers.codes.Code.VALID)
+                except (ValueError, TypeError):
+                    raise
+                except Exception:
+                    code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
+                    raise
         except Exception as e:
+            if isinstance(e, ValueError) or isinstance(e, TypeError):
+                message = json.dumps({message: str(e)})
+            else:
+                _LOGGER.exception('Add readings failed')
+        finally:
             if increment_discarded_counter:
                 Ingest.increment_discarded_readings()
-
-            _LOGGER.exception("Add readings failed for payload:\n%s", payload)
-
-            if isinstance(e, ValueError) or isinstance(e, TypeError):
-                message = str(e)
-            else:
-                message = ''
-
             return aiocoap.Message(payload=message.encode('utf-8'), code=code)
 

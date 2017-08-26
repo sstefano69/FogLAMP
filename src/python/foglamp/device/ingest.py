@@ -87,12 +87,13 @@ class Ingest(object):
     # 10/50/1 - 515
     # 3/500/5 - 434
     # 3/10/5 - 481
+    # 4/50/5 - 500
 
     # Configuration
-    _num_queues = 3
+    _num_queues = 4
     """Maximum number of insert queues. Each queue has its own database connection."""
 
-    _batch_size = 10
+    _batch_size = 50
     """Maximum number of rows in a batch of inserts"""
 
     _queue_flush_seconds = 5
@@ -101,7 +102,7 @@ class Ingest(object):
     _max_queue_size = 3*_batch_size
     """Maximum number of items in a queue"""
 
-    _max_insert_attempts = 100
+    _max_insert_attempts = 60
     """Number of times to attempt to insert a batch"""
 
     @classmethod
@@ -399,6 +400,12 @@ class Ingest(object):
         queue_index = cls._current_queue_index
         queue = cls._queues[queue_index]
         await queue.put((asset, timestamp, key, json.dumps(readings)))
+
+        if queue.qsize() >= cls._batch_size:
+            queue_index += 1
+            if queue_index >= cls._num_queues:
+                queue_index = 0
+            cls._current_queue_index = queue_index
 
         #_LOGGER.debug('Queue index: %s Queue size: %s', cls._current_queue_index, queue.qsize())
 
