@@ -88,7 +88,7 @@ class Ingest(object):
     """While creating a batch, yield to other tasks after this taking this many
     items from the queue"""
 
-    _max_queue_size = 5*_batch_size
+    _max_queue_size = 3*_batch_size
     """Maximum number of items in a queue"""
 
     _max_insert_attempts = 60
@@ -176,7 +176,7 @@ class Ingest(object):
                     break
                 if queue.qsize() >= cls._batch_size:
                     break
-                #_LOGGER.debug('Waiting: Queue index: %s Queue size: %s',
+                # _LOGGER.debug('Waiting: Queue index: %s Size: %s',
                 #              queue_index, queue.qsize())
                 await asyncio.sleep(.1)
 
@@ -211,29 +211,29 @@ class Ingest(object):
                 inserts.append((insert[0], insert[1], insert[2], json.dumps(insert[3])))
                 # inserts.append(insert)
 
+            # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s', queue_index, len(inserts))
+
             while True:
                 try:
                     if connection is None:
                         connection = await asyncpg.connect(database='foglamp')
                         # Create a temp table for 'copy' command
-                        await connection.execute('create temp table t_readings ('
-                                                 'asset_code character varying(50),'
-                                                 'user_ts timestamp(6) with time zone,'
-                                                 'read_key uuid,'
-                                                 'reading jsonb)')
+                        await connection.execute('create temp table t_readings '
+                                                 'as select asset_code, user_ts, read_key, reading '
+                                                 'from foglamp.readings where 1=0')
                     else:
                         await connection.execute('truncate table t_readings')
 
-                    await connection.copy_records_to_table(
-                        table_name='t_readings',
-                        records=inserts)
+                    await connection.copy_records_to_table( table_name='t_readings',
+                                                           records=inserts)
 
-                    await connection.execute('insert into readings(asset_code,user_ts,read_key,'
-                                             'reading) select * from t_readings '
-                                             'on conflict do nothing')
+                    await connection.execute('insert into foglamp.readings '
+                                             '(asset_code,user_ts,read_key,reading) '
+                                             'select * from t_readings on conflict do nothing')
 
                     cls._readings += len(inserts)
-                    # _LOGGER.debug('Queue index: %s Batch size: %s', queue_index, len(inserts))
+
+                    # _LOGGER.debug('End insert: Queue index: %s Batch size: %s', queue_index, len(inserts))
 
                     break
                 except Exception as e:
@@ -397,12 +397,11 @@ class Ingest(object):
         await queue.put((asset, timestamp, key, readings))
         # await queue.put((asset, timestamp, key, json.dumps(readings)))
 
+        # _LOGGER.debug('Queue index: %s size: %s', cls._current_queue_index, queue.qsize())
+
         # When the current queue is full, move on to the next queue
-        if queue.qsize() >= cls._batch_size:
+        if True:  # queue.qsize() >= cls._batch_size:
             queue_index += 1
             if queue_index >= cls._num_queues:
                 queue_index = 0
             cls._current_queue_index = queue_index
-
-        # _LOGGER.debug('Queue index: %s Queue size: %s', cls._current_queue_index, queue.qsize())
-
