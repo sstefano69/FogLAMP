@@ -226,7 +226,7 @@ class Ingest(object):
                                              'on conflict do nothing')
 
                     cls._readings += len(inserts)
-                    #_LOGGER.debug('Queue index: %s Batch size: %s', queue_index, len(inserts))
+                    # _LOGGER.debug('Queue index: %s Batch size: %s', queue_index, len(inserts))
 
                     break
                 except Exception as e:
@@ -396,5 +396,5 @@ class Ingest(object):
                 queue_index = 0
             cls._current_queue_index = queue_index
 
-        #_LOGGER.debug('Queue index: %s Queue size: %s', cls._current_queue_index, queue.qsize())
+        # _LOGGER.debug('Queue index: %s Queue size: %s', cls._current_queue_index, queue.qsize())
 
