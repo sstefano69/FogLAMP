@@ -78,11 +78,15 @@ class Ingest(object):
     _num_queues = 3
     """Maximum number of insert queues. Each queue has its own database connection."""
 
-    _batch_size = 50
+    _batch_size = 250
     """Maximum number of rows in a batch of inserts"""
 
     _queue_flush_seconds = 1
     """Number of seconds to wait for a queue to reach the maximum batch size"""
+
+    _batch_yield_frequency = 10
+    """While creating a batch, yield to other tasks after this taking this many
+    items from the queue"""
 
     _max_queue_size = 5*_batch_size
     """Maximum number of items in a queue"""
@@ -198,11 +202,14 @@ class Ingest(object):
             # inserts = [insert]
 
             for _ in range(1, cls._batch_size):
+                if not (len(inserts) % cls._batch_yield_frequency):
+                    await asyncio.sleep(0)
                 try:
                     insert = queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
                 inserts.append((insert[0], insert[1], insert[2], json.dumps(insert[3])))
+                # inserts.append(insert)
 
             while True:
                 try:
@@ -388,6 +395,7 @@ class Ingest(object):
         # There are more acks and fewer timeouts when readings is put in the queue
         # instead of using json.dumps
         await queue.put((asset, timestamp, key, readings))
+        # await queue.put((asset, timestamp, key, json.dumps(readings)))
 
         # When the current queue is full, move on to the next queue
         if queue.qsize() >= cls._batch_size:
