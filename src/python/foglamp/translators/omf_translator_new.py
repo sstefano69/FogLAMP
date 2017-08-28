@@ -34,10 +34,9 @@ __version__ = "${VERSION}"
 
 _MODULE_NAME = "OMF Translator"
 
-_DEBUG_LOG = False
-_PERFORMANCE_LOG = True
-
-_DEBUG_LEVEL = 0
+# Defines what and the level of details for logging
+_log_debug_level = 0
+_log_performance = False
 
 _MESSAGES_LIST = {
 
@@ -170,7 +169,7 @@ def performance_log(func):
         # Code execution
         res = func(*arg)
 
-        if _PERFORMANCE_LOG:
+        if _log_performance:
             usage = resource.getrusage(resource.RUSAGE_SELF)
             memory_process = (usage[2])/1000
 
@@ -238,11 +237,12 @@ def retrieve_plugin_info(_stream_id):
     try:
         # note : _module_name is used as __name__ refers to the Sending Process
         # FIXME: Development only
-        if _DEBUG_LOG:
-            _logger = logger.setup(_MODULE_NAME, level=logging.DEBUG, destination=logger.CONSOLE)
-        else:
+        if _log_debug_level == 0:
             _logger = logger.setup(_MODULE_NAME, level=logging.INFO, destination=logger.CONSOLE)
             # _logger = logger.setup(_MODULE_NAME)
+
+        elif _log_debug_level >= 1:
+            _logger = logger.setup(_MODULE_NAME, level=logging.DEBUG, destination=logger.CONSOLE)
 
     except Exception as e:
         message = _MESSAGES_LIST["e000005"].format(str(e))
@@ -489,7 +489,7 @@ def _transform_in_memory_row(data_to_send, row, target_stream_id):
         timestamp = row[2].isoformat()
         sensor_data = row[3]
 
-        if __debug__:
+        if _log_debug_level == 2:
             _logger.debug("Stream ID : |{0}| Sensor ID : |{1}| Row ID : |{2}|  "
                           .format(target_stream_id, asset_code, str(row_id)))
 
@@ -518,7 +518,7 @@ def _transform_in_memory_row(data_to_send, row, target_stream_id):
             # note : append produces an not properly constructed OMF message
             data_to_send.extend(new_data)
 
-            if __debug__:
+            if _log_debug_level == 2:
                 _logger.debug("in memory info |{0}| ".format(new_data))
 
         else:
@@ -536,7 +536,7 @@ if __name__ == "__main__":
     try:
         # note : _module_name is used as __name__ refers to the Sending Process
         # FIXME: Development only
-        if _DEBUG_LOG:
+        if _log_debug_level:
             _logger = logger.setup(_MODULE_NAME, level=logging.DEBUG, destination=logger.CONSOLE)
         else:
             _logger = logger.setup(_MODULE_NAME, level=logging.INFO, destination=logger.CONSOLE)

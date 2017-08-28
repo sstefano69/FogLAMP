@@ -33,13 +33,11 @@ def retrieve_plugin_info(_stream_id):
 
 
 def plugin_init():
-    """ Empty translator
-    """
+    """ Empty translator """
 
 
 def plugin_shutdown():
-    """ Empty translator
-    """
+    """ Empty translator """
 
 
 if __name__ == "__main__":

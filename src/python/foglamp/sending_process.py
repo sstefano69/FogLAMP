@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-
 # FOGLAMP_BEGIN
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
@@ -16,6 +15,7 @@ that is devolved to the translation plugin in order to allow for flexibility in 
 """
 
 import resource
+import argparse
 
 import asyncio
 import sys
@@ -33,11 +33,13 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_DEBUG_LOG = False
-_PERFORMANCE_LOG = True
+# Defines what and the level of details for logging
+_log_debug_level = 0
+_log_performance = False
 
 _MODULE_NAME = "Sending Process"
 
+# Messages used for Information, Warning and Error notice
 _MESSAGES_LIST = {
 
     # Information messages
@@ -63,19 +65,24 @@ _MESSAGES_LIST = {
     "e000014": "multiple streams having same id are defined - stream id |{0}|",
     "e000015": "the selected plugin is not a valid translator - plug in |{0} / {1}|",
     "e000016": "invalid stream id, it is not defined - stream id |{0}|",
+    "e000017": "cannot handle command line parameters - error details |{0}|",
+    "e000018": "cannot initialize the plugin |{0}|",
+    "e000019": "cannot retrieve the starting point for sending operation.",
+    "e000020": "cannot update the reached position.",
+    "e000021": "cannot complete the sending operation.",
+    "e000022": "cannot complete the sending operation of a block of data.",
 }
-"""Messages used for Information, Warning and Error notice"""
-
 
 _TRANSLATOR_PATH = "foglamp.translators."
-_TRANSLATOR_TYPE = "translator"
+# Define the type of the plugin managed by the Sending Process
+_PLUGIN_TYPE = "translator"
 
 _DATA_SOURCE_READINGS = "readings"
 _DATA_SOURCE_STATISTICS = "statistics"
 _DATA_SOURCE_AUDIT = "audit"
 
 # FIXME: set proper values
-_DEFAULT_OMF_CONFIG = {
+_CONFIG_DEFAULT = {
     "enable": {
         "description": "A switch that can be used to enable or disable execution of the sending process.",
         "type": "boolean",
@@ -96,7 +103,6 @@ _DEFAULT_OMF_CONFIG = {
         "description": "The size of a block of readings to send in each transmission.",
         "type": "integer",
         "default": "5000"
-        # "default": "10"
     },
     "sleepInterval": {
         "description": "A period of time, expressed in seconds, "
@@ -118,6 +124,19 @@ _DEFAULT_OMF_CONFIG = {
 _CONFIG_CATEGORY_NAME = 'SEND_PR'
 _CONFIG_CATEGORY_DESCRIPTION = 'Configuration of the Sending Process'
 
+# Configurations retrieved from the Configuration Manager
+_config_from_manager = ""
+
+# Configurations used in the Sending Process
+_config = {
+    'enable': _CONFIG_DEFAULT['enable']['default'],
+    'duration': int(_CONFIG_DEFAULT['duration']['default']),
+    'source': _CONFIG_DEFAULT['source']['default'],
+    'blockSize': int(_CONFIG_DEFAULT['blockSize']['default']),
+    'sleepInterval': int(_CONFIG_DEFAULT['sleepInterval']['default']),
+    'translator': _CONFIG_DEFAULT['translator']['default'],
+}
+
 # Plugin handling - loading an empty plugin
 _module_template = _TRANSLATOR_PATH + "empty_translator"
 _plugin = importlib.import_module(_module_template)
@@ -131,27 +150,12 @@ _plugin_info = {
 
 # DB references
 _DB_CONNECTION_STRING = 'postgresql:///foglamp'
-
-# FIXME:
 _pg_conn = ()
 _pg_cur = ()
 
 _logger = ""
-
 _event_loop = ""
-
 _stream_id = 0
-
-# Configurations retrieved from the Configuration Manager
-_config_from_manager = ""
-_config = {
-    'enable': _DEFAULT_OMF_CONFIG['enable']['default'],
-    'duration': int(_DEFAULT_OMF_CONFIG['duration']['default']),
-    'source': _DEFAULT_OMF_CONFIG['source']['default'],
-    'blockSize': int(_DEFAULT_OMF_CONFIG['blockSize']['default']),
-    'sleepInterval': int(_DEFAULT_OMF_CONFIG['sleepInterval']['default']),
-    'translator': _DEFAULT_OMF_CONFIG['translator']['default'],
-}
 
 
 class PluginInitialiseFailed(RuntimeError):
@@ -181,9 +185,9 @@ def performance_log(func):
         # Code execution
         res = func(*arg)
 
-        if _PERFORMANCE_LOG:
+        if _log_performance:
             usage = resource.getrusage(resource.RUSAGE_SELF)
-            memory_process = (usage[2])/1000
+            process_memory = (usage[2])/1000
 
             delta = datetime.datetime.now() - start
             delta_milliseconds = int(delta.total_seconds() * 1000)
@@ -191,18 +195,18 @@ def performance_log(func):
             _logger.info("PERFORMANCE - {0} - milliseconds |{1:>6,}| - memory MB |{2:>6,}|"
                          .format(sys._getframe().f_locals['func'],
                                  delta_milliseconds,
-                                 memory_process))
+                                 process_memory))
 
         return res
 
     return wrapper
 
 
-def _retrieve_configuration(process_key):
+def _retrieve_configuration(stream_id):
     """ Retrieves the configuration from the Configuration Manager
 
     Args:
-        process_key - stream id, it is used to define which sending process we are running.
+        stream_id - managed stream id
 
     Returns:
     Raises:
@@ -215,9 +219,9 @@ def _retrieve_configuration(process_key):
     try:
         _logger.debug("function _retrieve_configuration")
 
-        config_category_name = _CONFIG_CATEGORY_NAME + "_" + str(process_key)
+        config_category_name = _CONFIG_CATEGORY_NAME + "_" + str(stream_id)
 
-        _event_loop.run_until_complete(configuration_manager.create_category(config_category_name, _DEFAULT_OMF_CONFIG,
+        _event_loop.run_until_complete(configuration_manager.create_category(config_category_name, _CONFIG_DEFAULT,
                                                                              _CONFIG_CATEGORY_DESCRIPTION))
         _config_from_manager = _event_loop.run_until_complete(configuration_manager.get_category_all_items
                                                               (config_category_name))
@@ -274,7 +278,6 @@ def _sending_process_init():
 
     global _plugin
     global _plugin_info
-    global _event_loop
 
     global _pg_conn
     global _pg_cur
@@ -304,18 +307,22 @@ def _sending_process_init():
 
                     _plugin_load()
 
+                    _plugin._log_debug_level = _log_debug_level
+                    _plugin._log_performance = _log_performance
+
                     _plugin_info = _plugin.retrieve_plugin_info(_stream_id)
 
-                    _logger.debug("{0} - _sending_process_init - {1} - {2} ".format(_MODULE_NAME,
-                                                                                    _plugin_info['name'],
-                                                                                    _plugin_info['version']))
+                    _logger.debug("_sending_process_init - {0} - {1} ".format(_plugin_info['name'],
+                                                                              _plugin_info['version']))
 
                     if _is_translator_valid():
                         try:
                             _plugin.plugin_init()
 
                         except Exception:
-                            # FIXME: improve / test
+                            _message = _MESSAGES_LIST["e000018"]
+
+                            _logger.exception(_message)
                             raise PluginInitialiseFailed
 
                 else:
@@ -333,7 +340,7 @@ def _sending_process_init():
 
 
 def _sending_process_shutdown():
-    """ Terminates the sending process
+    """ Terminates the sending process and the related plugin
 
     Args:
     Returns:
@@ -370,7 +377,7 @@ def _load_data_into_memory_readings(last_object_id):
     global _pg_cur
 
     try:
-        _logger.debug("{0} - _load_data_into_memory_readings".format(_MODULE_NAME))
+        _logger.debug("_load_data_into_memory_readings")
 
         sql_cmd = "SELECT id, asset_code, user_ts, reading " \
                   "FROM foglamp.readings " \
@@ -391,7 +398,7 @@ def _load_data_into_memory_readings(last_object_id):
 
 
 def _load_data_into_memory_statistics(last_object_id):
-    """
+    """ Extracts from the DB Layer data related to the statistics loading into the memory
     #
 
     Args:
@@ -401,21 +408,21 @@ def _load_data_into_memory_statistics(last_object_id):
     """
 
     try:
-        _logger.debug("{0} - _load_data_into_memory_statistics {1}".format(_MODULE_NAME, last_object_id))
+        _logger.debug("_load_data_into_memory_statistics {0}".format(last_object_id))
 
-        data_to_send = ""
+        raw_data = ""
 
     except Exception:
-        _message = _MESSAGES_LIST["e000006"]
+        _message = _MESSAGES_LIST["e000000"]
 
         _logger.exception(_message)
         raise
 
-    return data_to_send
+    return raw_data
 
 
 def _load_data_into_memory_audit(last_object_id):
-    """
+    """ Extracts from the DB Layer data related to the statistics audit into the memory
     #
 
     Args:
@@ -425,21 +432,21 @@ def _load_data_into_memory_audit(last_object_id):
     """
 
     try:
-        _logger.debug("{0} - _load_data_into_memory_audit {1} ".format(_MODULE_NAME, last_object_id))
+        _logger.debug("_load_data_into_memory_audit {0} ".format(last_object_id))
 
-        data_to_send = ""
+        raw_data = ""
 
     except Exception:
-        _message = _MESSAGES_LIST["e000006"]
+        _message = _MESSAGES_LIST["e000000"]
 
         _logger.exception(_message)
         raise
 
-    return data_to_send
+    return raw_data
 
 
 def _load_data_into_memory(last_object_id):
-    """
+    """ Identifies the data source requested and call the appropriate handler
 
     Args:
     Returns:
@@ -449,7 +456,7 @@ def _load_data_into_memory(last_object_id):
     """
 
     try:
-        _logger.debug("{0} - _load_data_into_memory".format(_MODULE_NAME))
+        _logger.debug("_load_data_into_memory")
 
         if _config['source'] == _DATA_SOURCE_READINGS:
             data_to_send = _load_data_into_memory_readings(last_object_id)
@@ -462,10 +469,12 @@ def _load_data_into_memory(last_object_id):
 
         else:
             _message = _MESSAGES_LIST["e000008"]
-            raise UnknownDataSource(_message)
+
+            _logger.exception(_message)
+            raise UnknownDataSource
 
     except Exception:
-        _message = _MESSAGES_LIST["e000006"]
+        _message = _MESSAGES_LIST["e000009"]
 
         _logger.exception(_message)
         raise
@@ -474,14 +483,12 @@ def _load_data_into_memory(last_object_id):
 
 
 def last_object_id_read():
-    """Retrieves the starting point for the send operation
+    """ Retrieves the starting point for the send operation
 
     Returns:
         last_object_id: starting point for the send operation
 
     Raises:
-        Exception: operations at db level failed
-
     Todo:
         it should evolve using the DB layer
     """
@@ -508,7 +515,7 @@ def last_object_id_read():
             _logger.debug("DB row last_object_id |{0}| : ".format(last_object_id))
 
     except Exception:
-        _message = _MESSAGES_LIST["e000002"]
+        _message = _MESSAGES_LIST["e000019"]
 
         _logger.exception(_message)
         raise
@@ -517,7 +524,7 @@ def last_object_id_read():
 
 
 def is_stream_id_valid(stream_id):
-    """ Checks if the stream id provided is valid
+    """ Checks if the provided stream id  is valid
 
     Returns:
         True/False
@@ -555,10 +562,10 @@ def is_stream_id_valid(stream_id):
 
 
 def last_object_id_update(new_last_object_id):
-    """Updates reached position in the communication with PICROMF
+    """ Updates reached position
 
     Args:
-        new_last_object_id:  Last row already sent to the PICROMF
+        new_last_object_id: Last row id already sent
 
     Todo:
         it should evolve using the DB layer
@@ -578,7 +585,7 @@ def last_object_id_update(new_last_object_id):
         _pg_conn.commit()
 
     except Exception:
-        _message = _MESSAGES_LIST["e000003"]
+        _message = _MESSAGES_LIST["e000020"]
 
         _logger.exception(_message)
         raise
@@ -586,7 +593,7 @@ def last_object_id_update(new_last_object_id):
 
 @performance_log
 def _send_data_block():
-    """ sends a block of data to the destination using the configured plugin
+    """ Sends a block of data to the destination using the configured plugin
 
     Args:
     Returns:
@@ -596,7 +603,7 @@ def _send_data_block():
 
     data_sent = False
     try:
-        _logger.debug("{0} - _send_data_block".format(_MODULE_NAME))
+        _logger.debug("_send_data_block")
 
         last_object_id = last_object_id_read()
 
@@ -607,8 +614,7 @@ def _send_data_block():
                 data_sent, new_last_object_id, num_sent = _plugin.plugin_send(data_to_send)
 
             except Exception:
-                # FIXME:
-                _message = _MESSAGES_LIST["e000000"]
+                _message = _MESSAGES_LIST["e000022"]
 
                 _logger.exception(_message)
                 raise
@@ -619,7 +625,7 @@ def _send_data_block():
                     update_statistics(num_sent)
 
     except Exception:
-        _message = _MESSAGES_LIST["e000006"]
+        _message = _MESSAGES_LIST["e000022"]
 
         _logger.exception(_message)
         raise
@@ -637,7 +643,7 @@ def _send_data():
     """
 
     try:
-        _logger.debug("{0} - _send_data".format(_MODULE_NAME))
+        _logger.debug("_send_data")
 
         start_time = time.time()
         elapsed_seconds = 0
@@ -647,21 +653,21 @@ def _send_data():
             data_sent = _send_data_block()
 
             if not data_sent:
-                _logger.debug("{0} - _send_data - SLEEPING ".format(_MODULE_NAME))
+                _logger.debug("_send_data - SLEEPING ")
                 time.sleep(_config['sleepInterval'])
 
             elapsed_seconds = time.time() - start_time
-            _logger.debug("{0} - _send_data - elapsed_seconds {1} ".format(_MODULE_NAME, elapsed_seconds))
+            _logger.debug("_send_data - elapsed_seconds {0} ".format(elapsed_seconds))
 
     except Exception:
-        _message = _MESSAGES_LIST["e000006"]
+        _message = _MESSAGES_LIST["e000021"]
 
         _logger.exception(_message)
         raise
 
 
 def _is_translator_valid():
-    """ Checks if the translator has adequate characteristics to be used for sending the data
+    """ Checks if the translator has adequate characteristics to be used for sending of the data
 
     Args:
     Returns:
@@ -673,8 +679,9 @@ def _is_translator_valid():
     translator_ok = False
 
     try:
-        if _plugin_info['type'] == _TRANSLATOR_TYPE and \
+        if _plugin_info['type'] == _PLUGIN_TYPE and \
            _plugin_info['name'] != "Empty translator":
+
             translator_ok = True
 
     except Exception:
@@ -687,10 +694,9 @@ def _is_translator_valid():
 
 
 def update_statistics(num_sent):
-    """Updates FogLAMP statistics
+    """ Updates FogLAMP statistics
 
     Raises :
-        Exception - cannot update statistics
     """
 
     try:
@@ -703,15 +709,63 @@ def update_statistics(num_sent):
         raise
 
 
+def handling_input_parameters():
+    """ Handles command line parameters
+
+    Raises :
+        InvalidCommandLineParameters
+    """
+
+    global _log_performance
+    global _log_debug_level
+    global _stream_id
+
+    try:
+        parser = argparse.ArgumentParser(prog=_MODULE_NAME)
+        parser.description = '%(prog)s -- extract the data from the storage subsystem ' \
+                             'and stream it to the translator for sending to the external system.'
+        parser.epilog = ' '
+
+        parser.add_argument('-s', '--stream_id',
+                            required=True,
+                            default=0,
+                            help='Define the stream id to be used, it should be a number.')
+
+        parser.add_argument('-p', '--performance_log',
+                            default=False,
+                            choices=['y', 'yes', 'n', 'no'],
+                            help='Enable the logging of the performance.')
+
+        parser.add_argument('-d', '--debug_level',
+                            default='0',
+                            choices=['0', '1', '2'],
+                            help='Enable/define the level of logging for debugging (0: disabled, 1-2 level of details)')
+
+        namespace = parser.parse_args(sys.argv[1:])
+
+        _log_performance = True if namespace.performance_log in ['y', 'yes'] else False
+        _log_debug_level = int(namespace.debug_level)
+
+    except Exception as e:
+        _message = _MESSAGES_LIST["e000017"].format(e)
+
+        _logger.exception(_message)
+        raise InvalidCommandLineParameters
+
+    try:
+        _stream_id = int(namespace.stream_id) if namespace.stream_id else 1
+
+    except ValueError:
+        _message = _MESSAGES_LIST["e000011"].format(str(sys.argv))
+
+        _logger.exception(_message)
+        raise InvalidCommandLineParameters
+
+
 if __name__ == "__main__":
 
     try:
-        # FIXME: Development only
-        if _DEBUG_LOG:
-            _logger = logger.setup(__name__, level=logging.DEBUG, destination=logger.CONSOLE)
-        else:
-            _logger = logger.setup(__name__, level=logging.INFO, destination=logger.CONSOLE)
-            # _logger = logger.setup(__name__)
+        _logger = logger.setup(__name__)
 
     except Exception as ex:
         message = _MESSAGES_LIST["e000001"].format(str(ex))
@@ -720,23 +774,25 @@ if __name__ == "__main__":
         print("{0} - ERROR - {1}".format(current_time, message))
         sys.exit(1)
 
-    # Handling input parameters, only one - the stream id is required, as a number
     try:
-        tmp_stream_id = sys.argv[1]
-        _stream_id = int(tmp_stream_id)
+        handling_input_parameters()
 
-    except IndexError:
-        message = _MESSAGES_LIST["e000006"].format(str(sys.argv))
-        _logger.exception(message)
-        sys.exit(1)
+    except Exception as ex:
+        message = _MESSAGES_LIST["e000002"].format(str(ex))
 
-    except ValueError:
-        message = _MESSAGES_LIST["e000011"].format(str(sys.argv))
         _logger.exception(message)
         sys.exit(1)
 
     else:
         try:
+            # FIXME:
+            # Set the debug level
+            if _log_debug_level == 0:
+                _logger = logger.setup(__name__, level=logging.INFO, destination=logger.CONSOLE)
+
+            elif _log_debug_level >= 1:
+                _logger = logger.setup(__name__, level=logging.DEBUG, destination=logger.CONSOLE)
+
             _event_loop = asyncio.get_event_loop()
 
             if _sending_process_init():
