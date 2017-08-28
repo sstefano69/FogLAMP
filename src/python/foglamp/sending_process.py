@@ -51,10 +51,10 @@ _MESSAGES_LIST = {
     "e000000": "general error",
     "e000001": "cannot setup the logger - error details |{0}|",
     "e000002": "cannot complete the operation - error details |{0}|",
-    "e000003": "cannot complete the retrieval of the configuration.",
-    "e000004": "cannot complete the initialization.",
+    "e000003": "cannot complete the retrieval of the configuration",
+    "e000004": "cannot complete the initialization",
     "e000005": "cannot load the plugin |{0}|",
-    "e000006": "invalid input parameters, the stream id is required - parameters |{0}|",
+    "e000006": "cannot complete the sending operation of a block of data.",
     "e000007": "cannot complete the termination of the sending process.",
     "e000008": "unknown data source, it could be only: readings, statistics or audit.",
     "e000009": "cannot complete loading data into the memory.",
@@ -69,8 +69,8 @@ _MESSAGES_LIST = {
     "e000018": "cannot initialize the plugin |{0}|",
     "e000019": "cannot retrieve the starting point for sending operation.",
     "e000020": "cannot update the reached position.",
-    "e000021": "cannot complete the sending operation.",
-    "e000022": "cannot complete the sending operation of a block of data.",
+    "e000021": "cannot complete the sending operation - error details |{0}|",
+    "e000022": "",
 }
 
 _TRANSLATOR_PATH = "foglamp.translators."
@@ -91,7 +91,7 @@ _CONFIG_DEFAULT = {
     "duration": {
         "description": "How long the sending process should run before stopping.",
         "type": "integer",
-        "default": "1"
+        "default": "120"
     },
     "source": {
         "description": "Defines the source of the data to be sent on the stream, "
@@ -108,7 +108,7 @@ _CONFIG_DEFAULT = {
         "description": "A period of time, expressed in seconds, "
                        "to wait between attempts to send readings when there are no readings to be sent.",
         "type": "integer",
-        "default": "0"
+        "default": "1"
     },
     "translator": {
         "description": "The name of the translator to use to translate the readings "
@@ -116,8 +116,7 @@ _CONFIG_DEFAULT = {
         "type": "string",
         "default": "omf_translator_new"
         # FIXME:
-        # "default": "omf_translator_new2"
-        # "default": "empty_translator"
+        # "default": "omf_translator"
     },
 
 }
@@ -173,7 +172,7 @@ class InvalidCommandLineParameters(RuntimeError):
     pass
 
 
-def performance_log(func):
+def _performance_log(func):
     """ Logs information for performance measurement """
 
     # noinspection PyProtectedMember
@@ -187,12 +186,12 @@ def performance_log(func):
 
         if _log_performance:
             usage = resource.getrusage(resource.RUSAGE_SELF)
-            process_memory = (usage[2])/1000
+            process_memory = usage.ru_maxrss/1000
 
             delta = datetime.datetime.now() - start
             delta_milliseconds = int(delta.total_seconds() * 1000)
 
-            _logger.info("PERFORMANCE - {0} - milliseconds |{1:>6,}| - memory MB |{2:>6,}|"
+            _logger.info("PERFORMANCE - {0} - milliseconds |{1:>8,}| - memory MB |{2:>8,}|"
                          .format(sys._getframe().f_locals['func'],
                                  delta_milliseconds,
                                  process_memory))
@@ -238,7 +237,7 @@ def _retrieve_configuration(stream_id):
     except Exception:
         _message = _MESSAGES_LIST["e000003"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
 
@@ -261,7 +260,7 @@ def _plugin_load():
     except ImportError:
         _message = _MESSAGES_LIST["e000005"].format(module_to_import)
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
 
@@ -296,7 +295,7 @@ def _sending_process_init():
         except Exception as e:
             _message = _MESSAGES_LIST["e000012"].format(str(e))
 
-            _logger.exception(_message)
+            _logger.error(_message)
             raise
         else:
             if is_stream_id_valid(_stream_id):
@@ -320,9 +319,9 @@ def _sending_process_init():
                             _plugin.plugin_init()
 
                         except Exception:
-                            _message = _MESSAGES_LIST["e000018"]
+                            _message = _MESSAGES_LIST["e000018"].format(_plugin_info['name'])
 
-                            _logger.exception(_message)
+                            _logger.error(_message)
                             raise PluginInitialiseFailed
 
                 else:
@@ -333,7 +332,7 @@ def _sending_process_init():
     except Exception:
         _message = _MESSAGES_LIST["e000004"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return _config['enable']
@@ -359,11 +358,11 @@ def _sending_process_shutdown():
     except Exception:
         _message = _MESSAGES_LIST["e000007"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
 
-@performance_log
+@_performance_log
 def _load_data_into_memory_readings(last_object_id):
     """ Extracts from the DB Layer data related to the readings loading into the memory
 
@@ -391,7 +390,7 @@ def _load_data_into_memory_readings(last_object_id):
     except Exception:
         _message = _MESSAGES_LIST["e000009"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return raw_data
@@ -415,7 +414,7 @@ def _load_data_into_memory_statistics(last_object_id):
     except Exception:
         _message = _MESSAGES_LIST["e000000"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return raw_data
@@ -439,7 +438,7 @@ def _load_data_into_memory_audit(last_object_id):
     except Exception:
         _message = _MESSAGES_LIST["e000000"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return raw_data
@@ -470,13 +469,13 @@ def _load_data_into_memory(last_object_id):
         else:
             _message = _MESSAGES_LIST["e000008"]
 
-            _logger.exception(_message)
+            _logger.error(_message)
             raise UnknownDataSource
 
     except Exception:
         _message = _MESSAGES_LIST["e000009"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return data_to_send
@@ -517,7 +516,7 @@ def last_object_id_read():
     except Exception:
         _message = _MESSAGES_LIST["e000019"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return last_object_id
@@ -555,8 +554,8 @@ def is_stream_id_valid(stream_id):
     except Exception as e:
         _message = _MESSAGES_LIST["e000013"].format(str(e))
 
-        _logger.exception(_message)
-        raise
+        _logger.error(_message)
+        raise e
 
     return stream_id_valid
 
@@ -587,11 +586,11 @@ def last_object_id_update(new_last_object_id):
     except Exception:
         _message = _MESSAGES_LIST["e000020"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
 
-@performance_log
+@_performance_log
 def _send_data_block():
     """ Sends a block of data to the destination using the configured plugin
 
@@ -610,24 +609,18 @@ def _send_data_block():
         data_to_send = _load_data_into_memory(last_object_id)
 
         if data_to_send:
-            try:
-                data_sent, new_last_object_id, num_sent = _plugin.plugin_send(data_to_send)
 
-            except Exception:
-                _message = _MESSAGES_LIST["e000022"]
+            data_sent, new_last_object_id, num_sent = _plugin.plugin_send(data_to_send)
 
-                _logger.exception(_message)
-                raise
-            else:
-                if data_sent:
-                    last_object_id_update(new_last_object_id)
+            if data_sent:
+                last_object_id_update(new_last_object_id)
 
-                    update_statistics(num_sent)
+                update_statistics(num_sent)
 
     except Exception:
-        _message = _MESSAGES_LIST["e000022"]
+        _message = _MESSAGES_LIST["e000006"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return data_sent
@@ -650,7 +643,15 @@ def _send_data():
 
         while elapsed_seconds < _config['duration']:
 
-            data_sent = _send_data_block()
+            # FIXME:
+            try:
+                data_sent = _send_data_block()
+
+            except Exception as e:
+                data_sent = False
+
+                _message = _MESSAGES_LIST["e000021"].format(e)
+                _logger.error(_message)
 
             if not data_sent:
                 _logger.debug("_send_data - SLEEPING ")
@@ -660,9 +661,9 @@ def _send_data():
             _logger.debug("_send_data - elapsed_seconds {0} ".format(elapsed_seconds))
 
     except Exception:
-        _message = _MESSAGES_LIST["e000021"]
+        _message = _MESSAGES_LIST["e000021"].format("")
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
 
@@ -687,7 +688,7 @@ def _is_translator_valid():
     except Exception:
         _message = _MESSAGES_LIST["e000000"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
     return translator_ok
@@ -705,7 +706,7 @@ def update_statistics(num_sent):
     except Exception:
         _message = _MESSAGES_LIST["e000010"]
 
-        _logger.exception(_message)
+        _logger.error(_message)
         raise
 
 
@@ -720,46 +721,42 @@ def handling_input_parameters():
     global _log_debug_level
     global _stream_id
 
-    try:
-        parser = argparse.ArgumentParser(prog=_MODULE_NAME)
-        parser.description = '%(prog)s -- extract the data from the storage subsystem ' \
-                             'and stream it to the translator for sending to the external system.'
-        parser.epilog = ' '
+    parser = argparse.ArgumentParser(prog=_MODULE_NAME)
+    parser.description = '%(prog)s -- extract the data from the storage subsystem ' \
+                         'and stream it to the translator for sending to the external system.'
+    parser.epilog = ' '
 
-        parser.add_argument('-s', '--stream_id',
-                            required=True,
-                            default=0,
-                            help='Define the stream id to be used, it should be a number.')
+    parser.add_argument('-s', '--stream_id',
+                        required=True,
+                        default=0,
+                        help='Define the stream id, it should be a number.')
 
-        parser.add_argument('-p', '--performance_log',
-                            default=False,
-                            choices=['y', 'yes', 'n', 'no'],
-                            help='Enable the logging of the performance.')
+    parser.add_argument('-p', '--performance_log',
+                        default=False,
+                        choices=['y', 'yes', 'n', 'no'],
+                        help='Enable the logging of the performance.')
 
-        parser.add_argument('-d', '--debug_level',
-                            default='0',
-                            choices=['0', '1', '2'],
-                            help='Enable/define the level of logging for debugging (0: disabled, 1-2 level of details)')
+    parser.add_argument('-d', '--debug_level',
+                        default='0',
+                        choices=['0', '1', '2', '3'],
+                        help='Enable/define the level of logging for debugging '
+                             '- level 0 only warning '
+                             '- level 1 info '
+                             '- level 3 detailed debug and impacts performance')
 
-        namespace = parser.parse_args(sys.argv[1:])
+    namespace = parser.parse_args(sys.argv[1:])
 
-        _log_performance = True if namespace.performance_log in ['y', 'yes'] else False
-        _log_debug_level = int(namespace.debug_level)
-
-    except Exception as e:
-        _message = _MESSAGES_LIST["e000017"].format(e)
-
-        _logger.exception(_message)
-        raise InvalidCommandLineParameters
+    _log_performance = True if namespace.performance_log in ['y', 'yes'] else False
+    _log_debug_level = int(namespace.debug_level)
 
     try:
         _stream_id = int(namespace.stream_id) if namespace.stream_id else 1
 
-    except ValueError:
+    except Exception as e:
         _message = _MESSAGES_LIST["e000011"].format(str(sys.argv))
 
-        _logger.exception(_message)
-        raise InvalidCommandLineParameters
+        _logger.error(_message)
+        raise e
 
 
 if __name__ == "__main__":
@@ -778,20 +775,20 @@ if __name__ == "__main__":
         handling_input_parameters()
 
     except Exception as ex:
-        message = _MESSAGES_LIST["e000002"].format(str(ex))
+        message = _MESSAGES_LIST["e000017"].format(str(ex))
 
         _logger.exception(message)
         sys.exit(1)
 
     else:
         try:
-            # FIXME:
             # Set the debug level
-            if _log_debug_level == 0:
-                _logger = logger.setup(__name__, level=logging.INFO, destination=logger.CONSOLE)
+            # FIXME: evaluate
+            if _log_debug_level == 1:
+                _logger.setLevel(logging.INFO)
 
-            elif _log_debug_level >= 1:
-                _logger = logger.setup(__name__, level=logging.DEBUG, destination=logger.CONSOLE)
+            elif _log_debug_level >= 2:
+                _logger.setLevel(logging.DEBUG)
 
             _event_loop = asyncio.get_event_loop()
 
