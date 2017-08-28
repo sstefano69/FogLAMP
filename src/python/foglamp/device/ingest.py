@@ -75,20 +75,23 @@ class Ingest(object):
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _num_queues = 3
+    _num_queues = 2
     """Maximum number of insert queues. Each queue has its own database connection."""
 
-    _batch_size = 250
+    _max_idle_db_connection_seconds = 180
+    """Database connection timeout"""
+
+    _max_batch_items = 100
     """Maximum number of rows in a batch of inserts"""
 
-    _queue_flush_seconds = 1
+    _min_queue_flush_seconds = 1
     """Number of seconds to wait for a queue to reach the maximum batch size"""
 
-    _batch_yield_frequency = 10
+    _batch_yield_num_items = 25
     """While creating a batch, yield to other tasks after this taking this many
     items from the queue"""
 
-    _max_queue_size = 3*_batch_size
+    _max_queue_items = 3*_max_batch_items
     """Maximum number of items in a queue"""
 
     _max_insert_attempts = 60
@@ -110,7 +113,7 @@ class Ingest(object):
         cls._queues = []
 
         for _ in range(cls._num_queues):
-            cls._queues.append(asyncio.Queue(maxsize=cls._max_queue_size))
+            cls._queues.append(asyncio.Queue(maxsize=cls._max_queue_items))
             cls._insert_readings_wait_tasks.append(None)
             cls._insert_readings_tasks.append(asyncio.ensure_future(cls._insert_readings(_)))
 
@@ -156,6 +159,14 @@ class Ingest(object):
         cls._discarded_readings += 1
 
     @classmethod
+    async def _close_connection(cls, connection: asyncpg.connection.Connection):
+        if connection is not None:
+            try:
+                await connection.close()
+            except Exception:
+                _LOGGER.exception('Closing connection failed')
+
+    @classmethod
     async def _insert_readings(cls, queue_index):
         """Inserts rows into the readings table using _queue
 
@@ -167,18 +178,19 @@ class Ingest(object):
 
         queue = cls._queues[queue_index]  # type: asyncio.Queue
         connection = None  # type: asyncpg.connection.Connection
-        loop_ctr = 10*cls._queue_flush_seconds
+        loop_ctr = 2*cls._min_queue_flush_seconds
 
         while True:
             # Wait for enough items in the queue to fill a batch
+            # for some minimum amount of time
             for _ in range(loop_ctr):
                 if cls._stop:
                     break
-                if queue.qsize() >= cls._batch_size:
+                if queue.qsize() >= cls._max_batch_items:
                     break
                 # _LOGGER.debug('Waiting: Queue index: %s Size: %s',
                 #              queue_index, queue.qsize())
-                await asyncio.sleep(.1)
+                await asyncio.sleep(.5)
 
             # Wait for the first entry
             try:
@@ -192,8 +204,12 @@ class Ingest(object):
                 cls._insert_readings_wait_tasks[queue_index] = waiter
 
                 try:
-                    insert = await waiter
+                    insert = await asyncio.wait_for(waiter, cls._max_idle_db_connection_seconds)
                 except asyncio.CancelledError:
+                    continue
+                except asyncio.TimeoutError:
+                    await cls._close_connection(connection)
+                    connection = None
                     continue
                 finally:
                     cls._insert_readings_wait_tasks[queue_index] = None
@@ -201,8 +217,8 @@ class Ingest(object):
             inserts = [(insert[0], insert[1], insert[2], json.dumps(insert[3]))]
             # inserts = [insert]
 
-            for _ in range(1, cls._batch_size):
-                if not (len(inserts) % cls._batch_yield_frequency):
+            for _ in range(1, cls._max_batch_items):
+                if not (len(inserts) % cls._batch_yield_num_items):
                     await asyncio.sleep(0)
                 try:
                     insert = queue.get_nowait()
@@ -240,25 +256,19 @@ class Ingest(object):
                     next_attempt = _ + 1
                     _LOGGER.exception('Insert failed on attempt #%s', next_attempt)
 
-                    if cls._stop or next_attempt == cls._max_insert_attempts:
+                    if cls._stop or next_attempt >= cls._max_insert_attempts:
                         cls._discarded_readings += len(inserts)
                         break
                     else:
                         if connection is None:
+                            # Connection failure
                             await asyncio.sleep(1)
                         else:
-                            try:
-                                await connection.close()
-                            except Exception:
-                                _LOGGER.exception('Closing connection failed')
+                            await cls._close_connection(connection)
                             connection = None
 
         # Exiting this method
-        if connection is not None:
-            try:
-                await connection.close()
-            except Exception:
-                _LOGGER.exception('Closing connection failed')
+        await cls._close_connection(connection)
 
         _LOGGER.info('Insert readings loop stopped')
 
@@ -306,14 +316,14 @@ class Ingest(object):
             return False
 
         queue_index = cls._current_queue_index
-        if cls._queues[queue_index].qsize() < cls._max_queue_size:
+        if cls._queues[queue_index].qsize() < cls._max_queue_items:
             return True
 
         for _ in range(1, cls._num_queues):
             queue_index += 1
             if queue_index >= cls._num_queues:
                 queue_index = 0
-            if cls._queues[queue_index].qsize() < cls._max_queue_size:
+            if cls._queues[queue_index].qsize() < cls._max_queue_items:
                 cls._current_queue_index = queue_index
                 return True
 
@@ -400,7 +410,7 @@ class Ingest(object):
         # _LOGGER.debug('Queue index: %s size: %s', cls._current_queue_index, queue.qsize())
 
         # When the current queue is full, move on to the next queue
-        if True:  # queue.qsize() >= cls._batch_size:
+        if True:  # queue.qsize() >= cls._max_batch_items:
             queue_index += 1
             if queue_index >= cls._num_queues:
                 queue_index = 0
