@@ -229,7 +229,7 @@ class Ingest(object):
 
             # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s', queue_index, len(inserts))
 
-            while True:
+            for _ in range(cls._max_insert_attempts):
                 try:
                     if connection is None:
                         connection = await asyncpg.connect(database='foglamp')
@@ -258,7 +258,6 @@ class Ingest(object):
 
                     if cls._stop or next_attempt >= cls._max_insert_attempts:
                         cls._discarded_readings += len(inserts)
-                        break
                     else:
                         if connection is None:
                             # Connection failure
