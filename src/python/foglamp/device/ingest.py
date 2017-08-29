@@ -77,19 +77,19 @@ class Ingest(object):
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _num_readings_queues = 1
+    _num_readings_queues = 2
     """Maximum number of insert queues. Each queue has its own database connection."""
 
     _max_idle_db_connection_seconds = 180
     """Close database connections when idle for this number of seconds"""
 
-    _max_readings_batch_size = 100
+    _max_readings_batch_size = 250
     """Maximum number of rows in a batch of inserts"""
 
-    _max_readings_queue_size = 10*_max_readings_batch_size
+    _max_readings_queue_size = 4*_max_readings_batch_size
     """Maximum number of items in a queue"""
 
-    _readings_batch_yield_items = 500
+    _readings_batch_yield_items = 50
     """While creating a batch, yield to other tasks after this taking this many
     items from the queue"""
 
@@ -102,7 +102,7 @@ class Ingest(object):
     _queue_readings_as_dict = True
     """True: Store readings in queue as a dict. False: Store readings as a string."""
 
-    _populate_all_readings_queues = True
+    _populate_readings_queues_round_robin = False
     """True: Fill all queues round robin. False: Fill one queue with _max_readings_batch_size before
     filling the next queue"""
 
@@ -465,20 +465,19 @@ class Ingest(object):
             readings = json.dumps(readings)
 
         await queue.put((asset, timestamp, key, readings))
-        event = cls._queue_events[queue_index]
-
         max_reached = queue.qsize() >= cls._max_readings_batch_size
 
-        if max_reached and not event.is_set():
+        if max_reached:  # and not event.is_set(): # TODO: Is this check necessary?
             # _LOGGER.debug('Set event queue index: %s size: %s',
             #               cls._current_readings_queue_index, queue.qsize())
-            event.set()
+            cls._queue_events[queue_index].set()
 
         # _LOGGER.debug('Queue index: %s size: %s', cls._current_readings_queue_index,
         #               queue.qsize())
 
         # When the current queue is full, move on to the next queue
-        if cls._num_readings_queues > 0 and (max_reached or cls._populate_all_readings_queues):
+        if cls._num_readings_queues > 1 and (max_reached or
+                                                 cls._populate_readings_queues_round_robin):
             queue_index += 1
             if queue_index >= cls._num_readings_queues:
                 queue_index = 0
