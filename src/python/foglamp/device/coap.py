@@ -140,9 +140,9 @@ class CoAPIngest(aiocoap.resource.Resource):
         except Exception:
             code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
             _LOGGER.exception('Add readings failed')
-        finally:
-            if increment_discarded_counter:
-                Ingest.increment_discarded_readings()
+
+        if increment_discarded_counter:
+            Ingest.increment_discarded_readings()
 
         return aiocoap.Message(payload=message.encode('utf-8'), code=code)
 
