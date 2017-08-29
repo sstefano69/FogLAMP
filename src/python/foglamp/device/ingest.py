@@ -137,12 +137,15 @@ class Ingest(object):
 
         cls._stop = True
 
-        for _ in cls._insert_readings_wait_tasks:
-            if _ is not None:
-                _.cancel()
+        for task in cls._insert_readings_wait_tasks:
+            if task is not None:
+                task.cancel()
 
-        for _ in cls._insert_readings_tasks:
-            await _
+        for task in cls._insert_readings_tasks:
+            try:
+                await task
+            except Exception:
+                _LOGGER.exception('An exception occurred in Ingest._insert_readings')
 
         cls._started = False
 
@@ -212,7 +215,10 @@ class Ingest(object):
                 cls._insert_readings_wait_tasks[queue_index] = waiter
 
                 try:
-                    insert = await asyncio.wait_for(waiter, cls._max_idle_db_connection_seconds)
+                    if connection is None:
+                        insert = await waiter
+                    else:
+                        insert = await asyncio.wait_for(waiter, cls._max_idle_db_connection_seconds)
                 except asyncio.CancelledError:
                     continue
                 except asyncio.TimeoutError:
@@ -240,7 +246,7 @@ class Ingest(object):
 
             # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s', queue_index, len(inserts))
 
-            for _ in range(cls._max_insert_attempts):
+            for attempt in range(cls._max_insert_attempts):
                 try:
                     if connection is None:
                         connection = await asyncpg.connect(database='foglamp')
@@ -265,7 +271,7 @@ class Ingest(object):
 
                     break
                 except Exception:  # TODO: Catch exception from asyncpg
-                    next_attempt = _ + 1
+                    next_attempt = attempt + 1
                     _LOGGER.exception('Insert failed on attempt #%s', next_attempt)
 
                     if cls._stop or next_attempt >= cls._max_insert_attempts:
