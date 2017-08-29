@@ -103,14 +103,13 @@ class CoAPIngest(aiocoap.resource.Resource):
         # https://docs.google.com/document/d/1rJXlOqCGomPKEKx2ReoofZTXQt9dtDiW_BHU7FYsj-k/edit#
         # and will be moved to a .rst file
 
-        code = aiocoap.numbers.codes.Code.BAD_REQUEST
+        code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
         increment_discarded_counter = True
         message = ''
 
         try:
             if not Ingest.is_available():
                 message = '{"busy": true}'
-                code = aiocoap.numbers.codes.Code.VALID
             else:
                 payload = cbor2.loads(request.payload)
 
@@ -136,9 +135,9 @@ class CoAPIngest(aiocoap.resource.Resource):
                 # Success
                 code = aiocoap.numbers.codes.Code.VALID
         except (ValueError, TypeError) as e:
+            code = aiocoap.numbers.codes.Code.BAD_REQUEST
             message = json.dumps({message: str(e)})
         except Exception:
-            code = aiocoap.numbers.codes.Code.INTERNAL_SERVER_ERROR
             _LOGGER.exception('Add readings failed')
 
         if increment_discarded_counter:
