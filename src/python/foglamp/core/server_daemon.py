@@ -230,3 +230,6 @@ def main():
             sys.stderr.write(format(str(exception)) + "\n")
 
         sys.exit(1)
+
+if __name__ == "__main__":
+    main()
