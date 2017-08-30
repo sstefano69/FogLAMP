@@ -362,7 +362,7 @@ class Ingest(object):
             try:
                 await statistics.update_statistics_value('READINGS', readings)
             except Exception:  # TODO catch real exception
-                cls._readings_stats = readings
+                cls._readings_stats += readings
                 _LOGGER.exception('An error occurred while writing readings statistics')
 
             readings = cls._discarded_readings_stats
