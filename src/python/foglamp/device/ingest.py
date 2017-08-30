@@ -44,10 +44,10 @@ class Ingest(object):
     """
 
     # Class attributes
-    _readings = 0  # type: int
+    _readings_stats = 0  # type: int
     """Number of readings accepted before statistics were flushed to storage"""
 
-    _discarded_readings = 0  # type: int
+    _discarded_readings_stats = 0  # type: int
     """Number of readings rejected before statistics were flushed to storage"""
 
     _write_statistics_task = None  # type: asyncio.Task
@@ -77,7 +77,7 @@ class Ingest(object):
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _num_readings_queues = 1
+    _num_readings_queues = 2
     """Maximum number of insert queues. Each queue has its own database connection."""
 
     _max_idle_db_connection_seconds = 180
@@ -166,15 +166,18 @@ class Ingest(object):
             cls._write_statistics_sleep_task.cancel()
             cls._write_statistics_sleep_task = None
 
-        await cls._write_statistics_task
-        cls._write_statistics_task = None
+        try:
+            await cls._write_statistics_task
+            cls._write_statistics_task = None
+        except Exception:
+            _LOGGER.exception('An exception occurred in Ingest._write_statistics')
 
         cls._stop = False
 
     @classmethod
     def increment_discarded_readings(cls):
         """Increments the number of discarded sensor readings"""
-        cls._discarded_readings += 1
+        cls._discarded_readings_stats += 1
 
     @classmethod
     async def _close_connection(cls, connection: asyncpg.connection.Connection):
@@ -308,7 +311,7 @@ class Ingest(object):
                                              '(asset_code,user_ts,read_key,reading) '
                                              'select * from t_readings on conflict do nothing')
 
-                    cls._readings += len(inserts)
+                    cls._readings_stats += len(inserts)
 
                     # _LOGGER.debug('End insert: Queue index: %s Batch size: %s',
                     #               queue_index, len(inserts))
@@ -319,7 +322,7 @@ class Ingest(object):
                     _LOGGER.exception('Insert failed on attempt #%s', next_attempt)
 
                     if cls._stop or next_attempt >= cls._max_insert_readings_batch_attempts:
-                        cls._discarded_readings += len(inserts)
+                        cls._discarded_readings_stats += len(inserts)
                     else:
                         if connection is None:
                             # Connection failure
@@ -350,17 +353,25 @@ class Ingest(object):
                 await cls._write_statistics_sleep_task
             except asyncio.CancelledError:
                 pass
+            finally:
+                cls._write_statistics_sleep_task = None
 
-            cls._write_statistics_sleep_task = None
+            readings = cls._readings_stats
+            cls._readings_stats = 0
 
             try:
-                await statistics.update_statistics_value('READINGS', cls._readings)
-                cls._readings = 0
+                await statistics.update_statistics_value('READINGS', readings)
+            except Exception:  # TODO catch real exception
+                cls._readings_stats = readings
+                _LOGGER.exception('An error occurred while writing readings statistics')
 
-                await statistics.update_statistics_value('DISCARDED', cls._discarded_readings)
-                cls._discarded_readings = 0
+            readings = cls._discarded_readings_stats
+            cls._discarded_readings_stats = 0
+            try:
+                await statistics.update_statistics_value('DISCARDED', readings)
             # TODO catch real exception
-            except Exception:
+            except Exception:  # TODO catch real exception
+                cls._discarded_readings_stats += readings
                 _LOGGER.exception('An error occurred while writing readings statistics')
 
         _LOGGER.info('Device statistics writer stopped')
@@ -479,7 +490,7 @@ class Ingest(object):
 
         # When the current queue is full, move on to the next queue
         if cls._num_readings_queues > 1 and (cls._populate_readings_queues_round_robin
-                                             or queue.qsize() >= cls.max_readings_batch_size):
+                                             or queue.qsize() >= cls._max_readings_batch_size):
             queue_index += 1
             if queue_index >= cls._num_readings_queues:
                 queue_index = 0
