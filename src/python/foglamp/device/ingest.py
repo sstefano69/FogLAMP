@@ -83,10 +83,10 @@ class Ingest(object):
     _max_idle_db_connection_seconds = 180
     """Close database connections when idle for this number of seconds"""
 
-    _min_readings_batch_size = 100
+    _min_readings_batch_size = 25
     """Preferred minimum number of rows in a batch of inserts"""
 
-    _max_readings_batch_size = 200
+    _max_readings_batch_size = 50
     """Maximum number of rows in a batch of inserts"""
     
     _max_readings_queue_size = 4*_max_readings_batch_size
@@ -105,7 +105,7 @@ class Ingest(object):
     _queue_readings_as_dict = True
     """True: Store readings in queue as a dict. False: Store readings as a string."""
 
-    _populate_readings_queues_round_robin = True
+    _populate_readings_queues_round_robin = False
     """True: Fill all queues round robin. False: Fill one queue with _max_readings_batch_size before
     filling the next queue"""
 
