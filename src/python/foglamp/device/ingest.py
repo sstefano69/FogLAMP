@@ -77,23 +77,23 @@ class Ingest(object):
     """asyncio tasks for asyncio.Queue.get called by :meth:`_insert_readings`"""
 
     # Configuration
-    _num_readings_queues = 2
+    _num_readings_queues = 1
     """Maximum number of insert queues. Each queue has its own database connection."""
 
     _max_idle_db_connection_seconds = 180
     """Close database connections when idle for this number of seconds"""
 
-    _max_readings_batch_size = 250
+    _max_readings_batch_size = 100
     """Maximum number of rows in a batch of inserts"""
 
     _max_readings_queue_size = 4*_max_readings_batch_size
     """Maximum number of items in a queue"""
 
-    _readings_batch_yield_items = 50
+    _readings_batch_yield_items = 25
     """While creating a batch, yield to other tasks after this taking this many
     items from the queue"""
 
-    _readings_batch_wait_seconds = 5
+    _readings_batch_wait_seconds = 1
     """Number of seconds to wait for a queue to reach the maximum batch size"""
 
     _max_insert_readings_attempts = 60
@@ -102,7 +102,7 @@ class Ingest(object):
     _queue_readings_as_dict = True
     """True: Store readings in queue as a dict. False: Store readings as a string."""
 
-    _populate_readings_queues_round_robin = False
+    _populate_readings_queues_round_robin = True
     """True: Fill all queues round robin. False: Fill one queue with _max_readings_batch_size before
     filling the next queue"""
 
@@ -277,11 +277,12 @@ class Ingest(object):
                 if len(inserts) >= cls._max_readings_batch_size:
                     break
 
-                if yield_num >= cls._readings_batch_yield_items:
-                    yield_num = 1
-                    await asyncio.sleep(0)
-                else:
-                    yield_num += 1
+                if cls._readings_batch_yield_items:
+                    if yield_num >= cls._readings_batch_yield_items:
+                        yield_num = 0
+                        await asyncio.sleep(0)
+                    else:
+                        yield_num += 1
 
             # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s',
             #              queue_index, len(inserts))
