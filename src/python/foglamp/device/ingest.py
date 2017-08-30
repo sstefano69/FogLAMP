@@ -89,7 +89,7 @@ class Ingest(object):
     _max_readings_queue_size = 4*_max_readings_batch_size
     """Maximum number of items in a queue"""
 
-    _readings_batch_yield_items = 25
+    _readings_batch_yield_items = 0
     """While creating a batch, yield to other tasks after this taking this many
     items from the queue"""
 
