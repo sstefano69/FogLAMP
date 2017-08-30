@@ -83,9 +83,12 @@ class Ingest(object):
     _max_idle_db_connection_seconds = 180
     """Close database connections when idle for this number of seconds"""
 
-    _max_readings_batch_size = 100
-    """Maximum number of rows in a batch of inserts"""
+    _min_readings_batch_size = 100
+    """Preferred minimum number of rows in a batch of inserts"""
 
+    _max_readings_batch_size = 200
+    """Maximum number of rows in a batch of inserts"""
+    
     _max_readings_queue_size = 4*_max_readings_batch_size
     """Maximum number of items in a queue"""
 
@@ -94,9 +97,9 @@ class Ingest(object):
     items from the queue"""
 
     _readings_batch_wait_seconds = 1
-    """Number of seconds to wait for a queue to reach the maximum batch size"""
+    """Number of seconds to wait for a queue to reach the minimum batch size"""
 
-    _max_insert_readings_attempts = 60
+    _max_insert_readings_batch_attempts = 60
     """Number of times to attempt to insert a batch in case of failure"""
 
     _queue_readings_as_dict = True
@@ -199,7 +202,7 @@ class Ingest(object):
             # Wait for enough items in the queue to fill a batch
             # for some minimum amount of time
             while not cls._stop:
-                if queue.qsize() >= cls._max_readings_batch_size:
+                if queue.qsize() >= cls._min_readings_batch_size:
                     break
 
                 event.clear()
@@ -287,7 +290,7 @@ class Ingest(object):
             # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s',
             #              queue_index, len(inserts))
 
-            for attempt in range(cls._max_insert_readings_attempts):
+            for attempt in range(cls._max_insert_readings_batch_attempts):
                 try:
                     if connection is None:
                         connection = await asyncpg.connect(database='foglamp')
@@ -315,7 +318,7 @@ class Ingest(object):
                     next_attempt = attempt + 1
                     _LOGGER.exception('Insert failed on attempt #%s', next_attempt)
 
-                    if cls._stop or next_attempt >= cls._max_insert_readings_attempts:
+                    if cls._stop or next_attempt >= cls._max_insert_readings_batch_attempts:
                         cls._discarded_readings += len(inserts)
                     else:
                         if connection is None:
@@ -385,7 +388,7 @@ class Ingest(object):
                 cls._current_readings_queue_index = queue_index
                 return True
 
-        _LOGGER.warning('Unavailable')
+        _LOGGER.warning('The ingest service is unavailable')
         return False
 
     @classmethod
@@ -460,25 +463,23 @@ class Ingest(object):
         queue_index = cls._current_readings_queue_index
         queue = cls._readings_queues[queue_index]
 
-        # There are more acks and fewer timeouts when readings is put in the queue
-        # instead of using json.dumps
         if not cls._queue_readings_as_dict:
             readings = json.dumps(readings)
 
         await queue.put((asset, timestamp, key, readings))
-        max_reached = queue.qsize() >= cls._max_readings_batch_size
-
-        if max_reached:  # and not event.is_set(): # TODO: Is this check necessary?
+        if queue.qsize() >= cls._min_readings_batch_size:
+            event = cls._queue_events[queue_index]
             # _LOGGER.debug('Set event queue index: %s size: %s',
             #               cls._current_readings_queue_index, queue.qsize())
-            cls._queue_events[queue_index].set()
+            if not event.is_set():  # TODO is this check necessary?
+                event.set()
 
         # _LOGGER.debug('Queue index: %s size: %s', cls._current_readings_queue_index,
         #               queue.qsize())
 
         # When the current queue is full, move on to the next queue
-        if cls._num_readings_queues > 1 and (max_reached or
-                                                 cls._populate_readings_queues_round_robin):
+        if cls._num_readings_queues > 1 and (cls._populate_readings_queues_round_robin
+                                             or queue.qsize() >= cls.max_readings_batch_size):
             queue_index += 1
             if queue_index >= cls._num_readings_queues:
                 queue_index = 0
