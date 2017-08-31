@@ -15,7 +15,6 @@ parts:
     source: .
     plugin: python
     python-version: python3
-    requirements: ./requirements.txt
 
 #parts:
 #  fogl:
@@ -24,4 +23,3 @@ parts:
 #    source-branch: develop
 #    plugin: python
 #    python-version: python3
-#    requirements: src/python/requirements.txt
