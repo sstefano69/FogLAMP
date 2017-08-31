@@ -91,7 +91,7 @@ _CONFIG_DEFAULT = {
     "duration": {
         "description": "How long the sending process should run before stopping.",
         "type": "integer",
-        "default": "120"
+        "default": "1"
     },
     "source": {
         "description": "Defines the source of the data to be sent on the stream, "
@@ -292,6 +292,9 @@ def _sending_process_init():
             _pg_conn = psycopg2.connect(_DB_CONNECTION_STRING)
             _pg_cur = _pg_conn.cursor()
 
+            # FIXME:
+            debug_code()
+
         except Exception as e:
             _message = _MESSAGES_LIST["e000012"].format(str(e))
 
@@ -481,6 +484,30 @@ def _load_data_into_memory(last_object_id):
     return data_to_send
 
 
+# FIXME:
+def debug_code():
+    """ debug_code """
+    global _pg_cur
+    global _pg_conn
+
+    list_sql_cmd = (
+        "DELETE FROM foglamp.omf_created_objects;",
+        "UPDATE foglamp.streams SET last_object=0, ts=now() WHERE id=1",
+        "UPDATE foglamp.statistics SET value=0;",
+        "DELETE FROM foglamp.configuration WHERE \"key\"='OMF_TRANS';",
+        "DELETE FROM foglamp.configuration WHERE \"key\"='OMF_TR_1';",
+        "DELETE FROM foglamp.configuration WHERE \"key\"='SEND_PR_1';",
+        "DELETE FROM foglamp.configuration WHERE \"key\"='OMF_TYPES';",
+
+
+    )
+
+    for cmd in list_sql_cmd:
+
+        _pg_cur.execute(cmd)
+        _pg_conn.commit()
+
+
 def last_object_id_read():
     """ Retrieves the starting point for the send operation
 
@@ -610,7 +637,7 @@ def _send_data_block():
 
         if data_to_send:
 
-            data_sent, new_last_object_id, num_sent = _plugin.plugin_send(data_to_send)
+            data_sent, new_last_object_id, num_sent = _plugin.plugin_send(data_to_send, _stream_id)
 
             if data_sent:
                 last_object_id_update(new_last_object_id)
@@ -643,7 +670,6 @@ def _send_data():
 
         while elapsed_seconds < _config['duration']:
 
-            # FIXME:
             try:
                 data_sent = _send_data_block()
 
@@ -742,7 +768,8 @@ def handling_input_parameters():
                         help='Enable/define the level of logging for debugging '
                              '- level 0 only warning '
                              '- level 1 info '
-                             '- level 3 detailed debug and impacts performance')
+                             '- level 2 debug '
+                             '- level 3 detailed debug - impacts performance')
 
     namespace = parser.parse_args(sys.argv[1:])
 
@@ -783,7 +810,6 @@ if __name__ == "__main__":
     else:
         try:
             # Set the debug level
-            # FIXME: evaluate
             if _log_debug_level == 1:
                 _logger.setLevel(logging.INFO)
 
