@@ -1,0 +1,27 @@
+name: foglamp
+version: 0.1
+summary: foglamp main
+description: |
+  foglamp is a robust solution for IoT device data routing
+grade: devel
+confinement: devmode
+
+apps:
+  foglamp:
+    command: foglamp
+
+parts:
+  foglamp:
+    source: .
+    plugin: python
+    python-version: python3
+    requirements: ./requirements.txt
+
+#parts:
+#  fogl:
+#    source: https://github.com/foglamp/FogLAMP.git
+#    source-type: git
+#    source-branch: develop
+#    plugin: python
+#    python-version: python3
+#    requirements: src/python/requirements.txt
