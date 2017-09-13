@@ -8,6 +8,7 @@
 
 import asyncio
 import signal
+import uvloop
 
 from foglamp.device import coap
 from foglamp.device.ingest import Ingest
@@ -37,6 +38,7 @@ async def _start():
 
 def start():
     """Starts the device server"""
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     loop = asyncio.get_event_loop()
 
     # Register signal handlers
