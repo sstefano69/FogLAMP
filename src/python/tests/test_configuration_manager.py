@@ -29,6 +29,7 @@ async def _delete_from_configuration():
         print("DELETE Failed")
         raise
 
+
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
 @pytest.allure.story("configuration_manager")
@@ -257,7 +258,7 @@ async def test_create_category_errors():
                                       'description': 'float type with default 1.1',
                                       'type': 'float',
                                       'default': '1.1'}})
-    assert ('ValueError: Invalid entry_val for entry_name "type" for item_name info. valid: '+
+    assert ('ValueError: Invalid entry_val for entry_name "type" for item_name info. valid: ' +
             "['boolean', 'integer', 'string', 'IPv4', " +
             "'IPv6', 'X509 certificate', 'password', 'JSON']") in str(error_exec)
 
@@ -296,7 +297,8 @@ async def test_create_category_errors():
                                   'type': 'boolean',
                                   'default': None}},
                               keep_original_items=False)
-    assert "TypeError: entry_val must be a string for item_name data and entry_name default" in str(error_exec)
+    assert "TypeError: entry_val must be a string for item_name data and entry_name default" in (
+        str(error_exec))
 
     with pytest.raises(TypeError) as error_exec:
         await create_category(category_name='boolean',
@@ -306,27 +308,31 @@ async def test_create_category_errors():
                                   'type': None,
                                   'default': 'False'}},
                               keep_original_items=False)
-    assert "TypeError: entry_val must be a string for item_name data and entry_name type" in str(error_exec)
+    assert "TypeError: entry_val must be a string for item_name data and entry_name type" in (
+        str(error_exec))
 
     with pytest.raises(TypeError) as error_exec:
         await create_category(category_name='boolean',
-                          category_description='boolean type',
-                          category_value={'data': {
-                              'description': 'boolean type with default True',
-                              'type': 'boolean',
-                              'default': False}},
-                          keep_original_items=False)
-    assert "TypeError: entry_val must be a string for item_name data and entry_name default" in str(error_exec)
+                              category_description='boolean type',
+                              category_value={'data': {
+                                  'description': 'boolean type with default True',
+                                  'type': 'boolean',
+                                  'default': False}},
+                              keep_original_items=False)
+    assert "TypeError: entry_val must be a string for item_name data and entry_name default" in (
+        str(error_exec))
 
     with pytest.raises(TypeError) as error_exec:
         await create_category(category_name='integer',
-                          category_description='integer type',
-                          category_value={'data': {
-                              'description': 'integers type with default o',
-                              'type': 'integer',
-                              'default': 0}},
-                          keep_original_items=False)
-    assert "TypeError: entry_val must be a string for item_name data and entry_name default" in str(error_exec)
+                              category_description='integer type',
+                              category_value={'data': {
+                                  'description': 'integers type with default 0',
+                                  'type': 'integer',
+                                  'default': 0}},
+                              keep_original_items=False)
+    assert "TypeError: entry_val must be a string for item_name data and entry_name default" in (
+        str(error_exec))
+
     await _delete_from_configuration()
 
 
@@ -373,6 +379,7 @@ async def test_set_category_item_value_entry():
         raise
     await _delete_from_configuration()
 
+
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
 @pytest.allure.feature("configuration_manager")
@@ -399,6 +406,7 @@ async def test_get_category_item_value_entry():
     result = await get_category_item_value_entry(category_name='boolean', item_name='info')
     assert result == 'True'
     await _delete_from_configuration()
+
 
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
@@ -431,7 +439,8 @@ async def test_get_category_item_value_entry_empty():
 @pytest.allure.feature("configuration_manager")
 async def test_get_category_item():
     """
-    Test that gt_category_item returns all the data in configuration.value for a specific category_name
+    Test that gt_category_item returns all the data in configuration.
+    value for a specific category_name
     :assert:
         1. Information in configuration.value match the category_values declared
         2. When updating value, the data retrieved for default is as expected
@@ -458,6 +467,7 @@ async def test_get_category_item():
 
     await _delete_from_configuration()
 
+
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
 @pytest.allure.feature("configuration_manager")
@@ -481,6 +491,7 @@ async def test_get_category_item_empty():
     result = await get_category_item(category_name='boolean', item_name='data')
     assert result is None
     await _delete_from_configuration()
+
 
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
@@ -507,12 +518,14 @@ async def test_get_category_all_items():
     assert result['info']['default'] == 'False'
     assert result['info']['value'] == 'False'
 
-    await  set_category_item_value_entry(category_name='boolean', item_name='info', new_value_entry='True')
+    await  set_category_item_value_entry(category_name='boolean', item_name='info',
+                                         new_value_entry='True')
     result = await get_category_all_items(category_name='boolean')
     assert result['info']['default'] == 'False'
     assert result['info']['value'] == 'True'
 
     await _delete_from_configuration()
+
 
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
@@ -535,6 +548,7 @@ async def test_get_category_all_items_empty():
     result = await get_category_all_items(category_name='integer')
     assert result is None
     await _delete_from_configuration()
+
 
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
@@ -603,5 +617,5 @@ async def test_get_all_category_names():
                               category_value=data[category_name]['category_value'])
     results = await get_all_category_names()
     for result in results:
-        assert data[result[0].replace(" ","")]['category_description'] == result[1]
+        assert data[result[0].replace(" ", "")]['category_description'] == result[1]
     await _delete_from_configuration()
