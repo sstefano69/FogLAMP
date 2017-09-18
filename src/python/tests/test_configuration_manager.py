@@ -6,7 +6,7 @@ tests to verify which data_types are supported and which are not.
 from foglamp.configuration_manager import (create_category, _configuration_tbl,
                                            set_category_item_value_entry, get_category_item,
                                            get_category_item_value_entry, get_category_all_items,
-                                           get_all_category_names)
+                                           get_all_category_names, register_interest)
 import aiopg
 import pytest
 import sqlalchemy as sa
@@ -618,4 +618,30 @@ async def test_get_all_category_names():
     results = await get_all_category_names()
     for result in results:
         assert data[result[0].replace(" ", "")]['category_description'] == result[1]
+    await _delete_from_configuration()
+
+
+@pytest.mark.asyncio
+@pytest.allure.feature("unit")
+@pytest.allure.feature("configuration_manager")
+async def test_register_interest_error():
+    """
+    Test that error gets returned when either category_name or callback is None
+    :Assert:
+        Assert error message when category_name is None
+        Assert error message when callback is None
+        Assert error messages when both are None
+    """
+    await _delete_from_configuration()
+
+    with pytest.raises(ValueError) as error_exec:
+        register_interest(category_name=None, callback='foglamp.callback')
+    assert "ValueError: Failed to register interest. category_name cannot be None" in (
+        str(error_exec))
+
+    with pytest.raises(ValueError) as error_exec:
+        register_interest(category_name='integer', callback=None)
+    assert "ValueError: Failed to register interest. callback cannot be None" in (
+        str(error_exec))
+
     await _delete_from_configuration()
