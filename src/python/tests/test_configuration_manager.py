@@ -6,7 +6,8 @@ tests to verify which data_types are supported and which are not.
 from foglamp.configuration_manager import (create_category, _configuration_tbl,
                                            set_category_item_value_entry, get_category_item,
                                            get_category_item_value_entry, get_category_all_items,
-                                           get_all_category_names, register_interest)
+                                           get_all_category_names, register_interest,
+                                           _registered_interests)
 import aiopg
 import pytest
 import sqlalchemy as sa
@@ -624,6 +625,24 @@ async def test_get_all_category_names():
 @pytest.mark.asyncio
 @pytest.allure.feature("unit")
 @pytest.allure.feature("configuration_manager")
+async def test_register_interest():
+    """
+    Test that when register_interest is called, _registered_interests gets updated
+    :assert:
+        1. assert that _registered_interests is cleaned
+        2. when index of keys list is 0, corresponding name is 'boolean'
+        3. the value for _registed_interests['boolean'] is {'tests.callback'}
+    """
+    _registered_interests.clear()
+    assert len(_registered_interests) == 0
+    register_interest(category_name='boolean', callback='tests.callback')
+    assert list(_registered_interests.keys())[0] == 'boolean'
+    assert _registered_interests['boolean'] == {'tests.callback'}
+    _registered_interests.clear()
+
+@pytest.mark.asyncio
+@pytest.allure.feature("unit")
+@pytest.allure.feature("configuration_manager")
 async def test_register_interest_error():
     """
     Test that error gets returned when either category_name or callback is None
@@ -632,8 +651,7 @@ async def test_register_interest_error():
         Assert error message when callback is None
         Assert error messages when both are None
     """
-    await _delete_from_configuration()
-
+    _registered_interests.clear()
     with pytest.raises(ValueError) as error_exec:
         register_interest(category_name=None, callback='foglamp.callback')
     assert "ValueError: Failed to register interest. category_name cannot be None" in (
@@ -643,5 +661,4 @@ async def test_register_interest_error():
         register_interest(category_name='integer', callback=None)
     assert "ValueError: Failed to register interest. callback cannot be None" in (
         str(error_exec))
-
-    await _delete_from_configuration()
+    _registered_interests.clear()
