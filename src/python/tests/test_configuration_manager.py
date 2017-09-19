@@ -17,9 +17,14 @@ __version__ = "${VERSION}"
 _CONNECTION_STRING = "dbname='foglamp'"
 pytestmark = pytest.mark.asyncio
 
+
 @pytest.allure.feature("unit")
 @pytest.allure.story("configuration_manager")
-class TestConfigurationManager():
+class TestConfigurationManager:
+    """
+    The following breaks down each configuration_manager method, and tests
+    its errors, and behaviors
+    """
     @pytest.fixture(scope="module")
     async def _delete_from_configuration(self):
         """clear data from foglamp.configuration and clear _registered_interests object"""
@@ -49,7 +54,7 @@ class TestConfigurationManager():
         except Exception:
             print("QUERY Failed")
             raise
-        assert len(_registered_interests) == 0
+        assert _registered_interests == {}
         await self._delete_from_configuration()
 
     async def test_create_configuration_all_data_types(self):
@@ -206,18 +211,18 @@ class TestConfigurationManager():
         await self._delete_from_configuration()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={'info': {
-                                      'description': 'boolean type with default False',
-                                      'type': 'boolean',
-                                      'default': 'False'}})
+                                  'description': 'boolean type with default False',
+                                  'type': 'boolean',
+                                  'default': 'False'}})
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
                     async for result in conn.execute(stmt):
                         assert sorted(list(result[0].keys())) == ['info']
-                        assert result[0]['data']['description'] == (
+                        assert result[0]['info']['description'] == (
                             'boolean type with default False')
-                        assert result[0]['data']['type'] == 'boolean'
-                        assert result[0]['data']['default'] == 'False'
+                        assert result[0]['info']['type'] == 'boolean'
+                        assert result[0]['info']['default'] == 'False'
         except Exception:
             print('Query failed: %s' % stmt)
             raise
@@ -287,23 +292,23 @@ class TestConfigurationManager():
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={'info': {
-                                      'description': 'boolean type with default False ',
+                                      'description': 'boolean type with default False',
                                       'type': bool,
                                       'default': 'False'
                                   }})
-        assert "TypeError: entry_val must be a string for item_name data and entry_name type" in (
-            str(error_exec))
-
+        assert ("TypeError: entry_val must be a string for item_name " +
+                "info and entry_name type") in str(error_exec)
         await self._delete_from_configuration()
         with pytest.raises(TypeError) as error_exec:
-            await create_category(category_name='boolean', category_description='boolean type',
+            await create_category(category_name='boolean',
+                                  category_description='boolean type',
                                   category_value={'info': {
-                                      'description': 'boolean type with default False ',
+                                      'description': 'boolean type with default False',
                                       'type': 'boolean',
                                       'default': False
                                   }})
-        assert "TypeError: entry_val must be a string for item_name data and entry_name default" in (
-            str(error_exec))
+        assert ("TypeError: entry_val must be a string for item_name " +
+                "info and entry_name default") in str(error_exec)
         await self._delete_from_configuration()
 
     async def test_create_category_missing_entry(self):
@@ -317,7 +322,7 @@ class TestConfigurationManager():
         """
         await self._delete_from_configuration()
         with pytest.raises(ValueError) as error_exec:
-            await create_category(category_name='boolean', category_description='bolean type',
+            await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={
                                       'info': {
                                           'description': 'boolean type with default False',
@@ -347,7 +352,7 @@ class TestConfigurationManager():
         """
         Test that TypeError is returned when entry_name is None
         :Assert:
-            1. Assesrt TypeError when description is None
+            1. Assert TypeError when description is None
             2. Assert TypeError when type is None
             3. Assert TypeError when default is None
         """
@@ -359,8 +364,8 @@ class TestConfigurationManager():
                                       'type': 'boolean',
                                       'default': 'False'
                                   }})
-        assert "TypeError: entry_val must be a string for item_name data and entry_name description" in (
-            str(error_exec))
+        assert ("TypeError: entry_val must be a string for item_name " +
+                "info and entry_name description") in str(error_exec)
 
         await self._delete_from_configuration()
         with pytest.raises(TypeError) as error_exec:
@@ -370,8 +375,8 @@ class TestConfigurationManager():
                                       'type': None,
                                       'default': 'False'
                                   }})
-        assert "TypeError: entry_val must be a string for item_name data and entry_name type" in (
-            str(error_exec))
+        assert ("TypeError: entry_val must be a string for item_name " +
+                "info and entry_name type") in str(error_exec)
 
         await self._delete_from_configuration()
         with pytest.raises(TypeError) as error_exec:
@@ -381,9 +386,8 @@ class TestConfigurationManager():
                                       'type': 'boolean',
                                       'default': None
                                   }})
-        assert "TypeError: entry_val must be a string for item_name data and entry_name default" in (
-            str(error_exec))
-
+        assert ("TypeError: entry_val must be a string for item_name info " +
+                "and entry_name default") in str(error_exec)
         await self._delete_from_configuration()
 
     async def test_set_category_item_value_entry(self):
@@ -430,7 +434,7 @@ class TestConfigurationManager():
         """
         Test that get_category_item_value_entry works properly
         :Assert:
-            1. category_value.value gets returned and matchates default
+            1. category_value.value gets returned and matches default
             2. When updating value, the data retrieved for value gets updated
         """
         await self._delete_from_configuration()
@@ -576,8 +580,8 @@ class TestConfigurationManager():
         """
         Test get_all_category_names validly returns the category_name and category_description
         :assert:
-            Assert that the category_name retrieved corresponds to the category_description with the use
-            of the existing dictionary (`data`)
+            Assert that the category_name retrieved corresponds to the category_description with
+            the use of the existing dictionary (`data`)
         """
         await self._delete_from_configuration()
         data = {
@@ -644,7 +648,7 @@ class TestConfigurationManager():
         Test that when register_interest is called, _registered_interests gets updated
         :assert:
             1. when index of keys list is 0, corresponding name is 'boolean'
-            2. the value for _registed_interests['boolean'] is {'tests.callback'}
+            2. the value for _register_interests['boolean'] is {'tests.callback'}
         """
         await self._delete_from_configuration()
         register_interest(category_name='boolean', callback='tests.callback')
