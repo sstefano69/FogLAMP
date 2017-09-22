@@ -3,16 +3,17 @@ The following tests the configuration manager component For the most part,
 the code uses the boolean type for testing due to simplicity; but contains
 tests to verify which data_types are supported and which are not.
 """
+
+import asyncio
 import os
+import pytest
+import sqlalchemy as sa
+import aiopg.sa
 from foglamp.configuration_manager import (create_category, set_category_item_value_entry,
                                            register_interest, get_all_category_names,
                                            get_category_all_items, get_category_item,
                                            get_category_item_value_entry, _registered_interests,
                                            _configuration_tbl)
-import aiopg
-import pytest
-import sqlalchemy as sa
-
 __author__ = "Ori Shadmon"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
@@ -21,6 +22,14 @@ __version__ = "${VERSION}"
 _CONNECTION_STRING = "dbname='foglamp'"
 pytestmark = pytest.mark.asyncio
 
+async def delete_from_configuration():
+    stmt = _configuration_tbl.delete()
+    try:
+        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
+            async with engine.acquire() as conn:
+                await conn.execute(stmt)
+    except Exception:
+        raise
 
 # @pytest.allure.feature("unit")
 # @pytest.allure.story("configuration manager")
@@ -29,50 +38,24 @@ class TestConfigurationManager:
     The following breaks down each configuration_manager method, and tests
     its errors, and behaviors
     """
-    @pytest.fixture(scope="module")
-    async def setup_method(self):
+    def setup_method(self):
         """reset foglamp data in database, with the exception of
         configuration (which should be empty), and clear data (if
         exists) in _registered_interests object"""
         os.system("psql < `locate foglamp_ddl.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
         os.system("psql < `locate foglamp_init_data.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
-        try:
-            async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-                async with engine.acquire() as conn:
-                    await conn.execute("DELETE FROM foglamp.configuration")
-        except Exception:
-            raise
+        event_loop = asyncio.get_event_loop()
+        event_loop.run_until_complete(delete_from_configuration())
         _registered_interests.clear()
 
-    @pytest.fixture(scope="module")
-    async def teardown_method(self):
+    def teardown_method(self):
         """reset foglamp data in database, and clear data (if exists)
         in _registered_interests object"""
         os.system("psql < `locate foglamp_ddl.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
         os.system("psql < `locate foglamp_init_data.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
         _registered_interests.clear()
 
-    async def test_setup_teardown_methods(self):
-        """
-        Test the setup_method method works properly. Since teardown_method is essentially the same,
-        there isn't a real need to verify it also works.
-        :assert:
-            1. No data exists in configuration
-            2. _registered_interests is empty
-        """
-        stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
-        await self.setup_method()
-        try:
-            async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-                async with engine.acquire() as conn:
-                    async for count in conn.execute(stmt):
-                        assert count[0] == 0
-        except Exception:
-            raise
-        assert _registered_interests == {}
-        await self.teardown_method()
-
-    async def test_create_category_all_data_types(self):
+    async def test_create_category_data_types(self):
         """
         Test that the accepted data types succeed
         :Assert:
@@ -81,7 +64,6 @@ class TestConfigurationManager:
             each category
         """
         stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
-        await self.setup_method()
         data = {
             'boolean': {'category_description': 'boolean type',
                         'category_value': {
@@ -164,7 +146,6 @@ class TestConfigurationManager:
                                 'info']['default']
             except Exception:
                 raise
-        await self.teardown_method()
 
     async def test_create_category_keep_original_items_true(self):
         """
@@ -176,7 +157,6 @@ class TestConfigurationManager:
         """
         stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
             _configuration_tbl.c.key == 'boolean')
-        await self.setup_method()
 
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
@@ -208,8 +188,6 @@ class TestConfigurationManager:
         except Exception:
             raise
 
-        await self.teardown_method()
-
     async def test_create_category_keep_original_items_false(self):
         """
         Test the behavior of create_category when keep_original_items == False
@@ -220,7 +198,6 @@ class TestConfigurationManager:
         """
         stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
             _configuration_tbl.c.key == 'boolean')
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={'info': {
                                   'description': 'boolean type with default False',
@@ -257,15 +234,12 @@ class TestConfigurationManager:
         except Exception:
             raise
 
-        await self.teardown_method()
-
-    async def test_create_category_invalid_type(self):
+    async def test_create_category_invalid_type_case1(self):
         """
         Test that create_category returns the expected error when type is invalid
         :assert:
             Assert that TypeError gets returned when  type is invalid (used 'float')
         """
-        await self.setup_method()
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='float', category_description='float type',
                                   category_value={
@@ -276,9 +250,8 @@ class TestConfigurationManager:
         assert ('ValueError: Invalid entry_val for entry_name "type" for item_name info. valid: ' +
                 "['boolean', 'integer', 'string', 'IPv4', " +
                 "'IPv6', 'X509 certificate', 'password', 'JSON']") in str(error_exec)
-        await self.teardown_method()
 
-        await self.setup_method()
+    async def test_create_category_invalid_type_case2(self):
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='INTEGER', category_description='INTEGER type',
                                   category_value={
@@ -289,16 +262,14 @@ class TestConfigurationManager:
         assert ('ValueError: Invalid entry_val for entry_name "type" for item_name info. valid: ' +
                 "['boolean', 'integer', 'string', 'IPv4', " +
                 "'IPv6', 'X509 certificate', 'password', 'JSON']") in str(error_exec)
-        await self.teardown_method()
 
-    async def test_create_category_invalid_entry_value(self):
+    async def test_create_category_invalid_entry_value_for_type(self):
         """
         Test cases where value is set to the actual "value" rather than the string of the value
         :Assert:
             1. Assert TypeError when type is set to bool rather than 'boolean'
             2. Assert TypeError when default is set to False rather than 'False'
         """
-        await self.setup_method()
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={'info': {
@@ -308,9 +279,8 @@ class TestConfigurationManager:
                                   }})
         assert ("TypeError: entry_val must be a string for item_name " +
                 "info and entry_name type") in str(error_exec)
-        await self.teardown_method()
 
-        await self.setup_method()
+    async def test_create_category_invalid_entry_value_for_default(self):
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='boolean',
                                   category_description='boolean type',
@@ -321,9 +291,20 @@ class TestConfigurationManager:
                                   }})
         assert ("TypeError: entry_val must be a string for item_name " +
                 "info and entry_name default") in str(error_exec)
-        await self.teardown_method()
 
-    async def test_create_category_missing_entry(self):
+    async def test_create_category_invalid_entry_value_for_description(self):
+        with pytest.raises(TypeError) as error_exec:
+            await create_category(category_name='boolean',
+                                  category_description='boolean type',
+                                  category_value={'info': {
+                                      'description': None,
+                                      'type': 'boolean',
+                                      'default': 'False'
+                                  }})
+        assert ("TypeError: entry_val must be a string for item_name " +
+                "info and entry_name description") in str(error_exec)
+
+    async def test_create_category_missing_entry_for_type(self):
         """
         Test that create_category returns the expected error when one of the entry names
         is missing
@@ -332,7 +313,6 @@ class TestConfigurationManager:
             2. Assert ValueError when description is missing
             3. Assert ValueError when default is missing
         """
-        await self.setup_method()
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={
@@ -340,9 +320,8 @@ class TestConfigurationManager:
                                           'description': 'boolean type with default False',
                                           'default': 'False'}})
         assert "ValueError: Missing entry_name type for item_name info" in str(error_exec)
-        await self.teardown_method()
 
-        await self.setup_method()
+    async def test_create_category_missing_entry_for_description(self):
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={
@@ -350,9 +329,8 @@ class TestConfigurationManager:
                                           'type': 'boolean',
                                           'default': 'False'}})
         assert "ValueError: Missing entry_name description for item_name info" in str(error_exec)
-        await self.teardown_method()
 
-        await self.setup_method()
+    async def test_create_category_missing_entry_for_default(self):
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={
@@ -360,9 +338,8 @@ class TestConfigurationManager:
                                           'type': 'integer',
                                           'description': 'integer type with value False'}})
         assert "ValueError: Missing entry_name default for item_name info" in str(error_exec)
-        await self.teardown_method()
 
-    async def test_create_category_invalid_entry_none(self):
+    async def test_create_category_invalid_entry_none_for_type(self):
         """
         Test that TypeError is returned when entry_name is None
         :Assert:
@@ -370,19 +347,6 @@ class TestConfigurationManager:
             2. Assert TypeError when type is None
             3. Assert TypeError when default is None
         """
-        await self.setup_method()
-        with pytest.raises(TypeError) as error_exec:
-            await create_category(category_name='boolean', category_description='boolean type',
-                                  category_value={'info': {
-                                      'description': None,
-                                      'type': 'boolean',
-                                      'default': 'False'
-                                  }})
-        assert ("TypeError: entry_val must be a string for item_name " +
-                "info and entry_name description") in str(error_exec)
-        await self.teardown_method()
-
-        await self.setup_method()
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={'info': {
@@ -392,9 +356,8 @@ class TestConfigurationManager:
                                   }})
         assert ("TypeError: entry_val must be a string for item_name " +
                 "info and entry_name type") in str(error_exec)
-        await self.teardown_method()
 
-        await self.setup_method()
+    async def test_create_category_invalid_entry_name_none_for_default(self):
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='boolean', category_description='boolean type',
                                   category_value={'info': {
@@ -404,7 +367,6 @@ class TestConfigurationManager:
                                   }})
         assert ("TypeError: entry_val must be a string for item_name info " +
                 "and entry_name default") in str(error_exec)
-        await self.teardown_method()
 
     async def test_set_category_item_value_entry(self):
         """
@@ -415,7 +377,6 @@ class TestConfigurationManager:
         """
         stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
             _configuration_tbl.c.key == 'boolean')
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -441,7 +402,6 @@ class TestConfigurationManager:
                         assert result[0]['info']['default'] == 'False'
         except Exception:
             raise
-        await self.teardown_method()
 
     async def test_set_category_item_value_error(self):
         """
@@ -453,7 +413,6 @@ class TestConfigurationManager:
         """
         stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
             _configuration_tbl.c.key == 'boolean')
-        await self.setup_method()
         await set_category_item_value_entry(category_name='boolean',
                                             item_name='info', new_value_entry='True')
         try:
@@ -463,7 +422,6 @@ class TestConfigurationManager:
                         assert result is None
         except Exception:
             raise
-        await self.teardown_method()
 
     async def test_get_category_item_value_entry(self):
         """
@@ -472,7 +430,6 @@ class TestConfigurationManager:
             1. category_value.value gets returned and matches default
             2. When updating value, the data retrieved for value gets updated
         """
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={'info': {
                                   'description': 'boolean type with default False',
@@ -485,7 +442,6 @@ class TestConfigurationManager:
                                             item_name='info', new_value_entry='True')
         result = await get_category_item_value_entry(category_name='boolean', item_name='info')
         assert result == 'True'
-        await self.teardown_method()
 
     async def test_get_category_item_value_entry_empty(self):
         """
@@ -494,7 +450,6 @@ class TestConfigurationManager:
             1. Assert None is returned when item_name does not exist
             2. Assert None is returned when category_name does not exist
         """
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -507,7 +462,6 @@ class TestConfigurationManager:
 
         result = await get_category_item_value_entry(category_name='integer', item_name='info')
         assert result is None
-        await self.teardown_method()
 
     async def test_get_category_item(self):
         """
@@ -517,7 +471,6 @@ class TestConfigurationManager:
             1. Information in configuration.value match the category_values declared
             2. When updating value, the data retrieved for default is as expected
         """
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -537,15 +490,12 @@ class TestConfigurationManager:
         assert result['default'] == 'False'
         assert result['value'] == 'True'
 
-        await self.teardown_method()
-
     async def test_get_category_item_empty(self):
         """
         Test that gt_category_item when either category_name or item_name do not exist
         :assert:
             Assert result is None when category_name or item_name do not exist in configuration
         """
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -558,7 +508,6 @@ class TestConfigurationManager:
 
         result = await get_category_item(category_name='boolean', item_name='data')
         assert result is None
-        await self.teardown_method()
 
     async def test_get_category_all_items(self):
         """
@@ -567,7 +516,6 @@ class TestConfigurationManager:
             1.  Values in dictionary are as expected
             2. default doesn't get updated when value does
         """
-        await  self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -588,15 +536,12 @@ class TestConfigurationManager:
         assert result['info']['default'] == 'False'
         assert result['info']['value'] == 'True'
 
-        await self.teardown_method()
-
     async def test_get_category_all_items_empty(self):
         """
         Test get_category_all_items doesn't return anything if category_name doesn't exist
         :assert:
             Assert None gets returned when category_name does not exist
         """
-        await self.setup_method()
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -607,7 +552,6 @@ class TestConfigurationManager:
 
         result = await get_category_all_items(category_name='integer')
         assert result is None
-        await self.teardown_method()
 
     async def test_get_all_category_names(self):
         """
@@ -616,7 +560,6 @@ class TestConfigurationManager:
             Assert that the category_name retrieved corresponds to the category_description with
             the use of the existing dictionary (`data`)
         """
-        await self.setup_method()
         data = {
             'boolean': {'category_description': 'boolean type',
                         'category_value': {
@@ -674,7 +617,6 @@ class TestConfigurationManager:
         results = await get_all_category_names()
         for result in results:
             assert data[result[0].replace(" ", "")]['category_description'] == result[1]
-        await self.teardown_method()
 
     async def test_register_interest(self):
         """
@@ -683,11 +625,9 @@ class TestConfigurationManager:
             1. when index of keys list is 0, corresponding name is 'boolean'
             2. the value for _register_interests['boolean'] is {'tests.callback'}
         """
-        await self.setup_method()
         register_interest(category_name='boolean', callback='tests.callback')
         assert list(_registered_interests.keys())[0] == 'boolean'
         assert _registered_interests['boolean'] == {'tests.callback'}
-        await self.teardown_method()
 
     async def test_register_interest_error(self):
         """
@@ -697,7 +637,6 @@ class TestConfigurationManager:
             Assert error message when callback is None
             Assert error messages when both are None
         """
-        await self.setup_method()
         with pytest.raises(ValueError) as error_exec:
             register_interest(category_name=None, callback='foglamp.callback')
         assert "ValueError: Failed to register interest. category_name cannot be None" in (
@@ -707,4 +646,3 @@ class TestConfigurationManager:
             register_interest(category_name='integer', callback=None)
         assert "ValueError: Failed to register interest. callback cannot be None" in (
             str(error_exec))
-        await self.teardown_method()
