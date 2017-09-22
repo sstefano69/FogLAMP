@@ -10,8 +10,6 @@
 import argparse
 import time
 import sys
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
 from foglamp import logger
 import foglamp.backup_restore.lib as lib
@@ -31,17 +29,13 @@ _MESSAGES_LIST = {
 }
 """ Messages used for Information, Warning and Error notice """
 
-
-# FIXME: it will be removed using the DB layer
-_DB_CONNECTION_STRING = "user='foglamp' dbname='foglamp'"
-
 # FIXME:
-# base_cmd = "bash -c '"
-# base_cmd += "source /home/foglamp/Development/FogLAMP/src/python/venv/foglamp/bin/activate;\\"
-# base_cmd += "python3 -m foglamp {0}"
-# base_cmd += "'"
+base_cmd = "bash -c '"
+base_cmd += "source /home/foglamp/Development/FogLAMP/src/python/venv/foglamp/bin/activate;\\"
+base_cmd += "python3 -m foglamp {0}"
+base_cmd += "'"
 
-base_cmd = "python3 -m foglamp {0}"
+# base_cmd = "python3 -m foglamp {0}"
 
 STATUS_NOT_DEFINED = 0
 STATUS_STOPPED = 1
@@ -88,13 +82,13 @@ def foglamp_stop():
 
     # Restore the backup
     # FIXME:
-    status, output = lib.exec_wait_retry(cmd, True, 0)
+    status, output = lib.exec_wait_retry(cmd, True)
 
-    _logger.debug("FogLAMP {func} - cmd |{cmd}|  output |{output}| -  status |{status}|  ".format(
+    _logger.debug("FogLAMP {func} - cmd |{cmd}| - status |{status}| - output |{output}|   ".format(
                 func=sys._getframe().f_code.co_name,
                 cmd=cmd,
-                output=output,
-                status=status))
+                status=status,
+                output=output))
 
     if status == 0:
         if foglamp_status() == STATUS_STOPPED:
@@ -119,11 +113,11 @@ def foglamp_start():
 
     cmd = base_cmd.format("start")
 
-    status, output = lib.exec_wait_retry(cmd, True, 0)
+    status, output = lib.exec_wait_retry(cmd, True)
 
     _logger.debug("FogLAMP {0} - output |{1}| -  status |{2}|  ".format(sys._getframe().f_code.co_name,
-                                                                output,
-                                                                status))
+                                                                        output,
+                                                                        status))
 
     if status == 0:
         if foglamp_status() != STATUS_RUNNING:
@@ -181,7 +175,7 @@ def foglamp_status():
             status = new_status
 
     if num_exec >= max_exec:
-        _logger.debug("ERROR - Max exec reached")
+        _logger.error("ERROR - Max exec reached")
         status = STATUS_NOT_DEFINED
 
     return status
@@ -193,13 +187,12 @@ def exec_restore(backup_file):
 
     # Evaluates the parameters
 
-    _logger.debug("{0} - restoring |{1}|".format(sys._getframe().f_code.co_name, backup_file))
+    _logger.debug("{func} - Restore start |{file}|".format(func=sys._getframe().f_code.co_name,
+                                                           file=backup_file))
 
     database = "foglamp"
     host = "localhost"
     port = 5432
-
-    _logger.debug("Restore start")
 
     # Generates the restore command
     cmd = "pg_restore"
@@ -212,12 +205,13 @@ def exec_restore(backup_file):
 
     # Restore the backup
     # FIXME:
-    status, output = lib.exec_wait_retry(cmd, True, 0)
+    status, output = lib.exec_wait_retry(cmd, True)
     output_short = output.splitlines()[10]
 
-    _logger.debug("restore - output |{1}| -  status |{0}|  ".format(status, output_short))
-
-    _logger.debug("Restore END")
+    _logger.debug("{func} - Restore end - status |{status}| - output |{output}|".format(
+                                func=sys._getframe().f_code.co_name,
+                                status=status,
+                                output=output_short))
 
     if status != 0:
         raise RestoreError
@@ -230,44 +224,38 @@ def retrieve_last_backup():
 
     _logger.debug("{0} ".format(sys._getframe().f_code.co_name))
 
-    _pg_conn = psycopg2.connect(_DB_CONNECTION_STRING, cursor_factory=RealDictCursor)
+    sql_cmd = """
+        SELECT file_name FROM foglamp.backups WHERE (ts,id)=
+        (SELECT  max(ts),MAX(id) FROM foglamp.backups WHERE status=0 or status=-2);
+    """
 
-    _pg_cur = _pg_conn.cursor()
+    data = lib.storage_retrieve(sql_cmd)
 
-    sql_cmd = "SELECT file_name FROM foglamp.backups WHERE (ts,id)=(SELECT  max(ts),MAX(id) FROM foglamp.backups WHERE status=0 or status=-2);"
-
-    _pg_cur.execute(sql_cmd)
-    raw_data = _pg_cur.fetchall()
-
-    if len(raw_data) == 0:
+    if len(data) == 0:
         raise NoBackupAvailableError
 
-    elif len(raw_data) == 1:
-        _file_name = raw_data[0]['file_name']
+    elif len(data) == 1:
+        _file_name = data[0]['file_name']
     else:
         raise FileNameError
 
     return _file_name
 
+
 # noinspection PyProtectedMember
-def update_backup_status(file_name, exit_status):
+def update_backup_status(_file_name, exit_status):
     """" # FIXME: """
 
-    _logger.debug("{0} - file name |{1}| ".format(sys._getframe().f_code.co_name, file_name))
-
-    _pg_conn = psycopg2.connect(_DB_CONNECTION_STRING)
-    _pg_cur = _pg_conn.cursor()
+    _logger.debug("{0} - file name |{1}| ".format(sys._getframe().f_code.co_name, _file_name))
 
     sql_cmd = """
 
         UPDATE foglamp.backups SET  status={status} WHERE file_name='{file}';
 
         """.format(status=exit_status,
-                   file=file_name, )
+                   file=_file_name, )
 
-    _pg_cur.execute(sql_cmd)
-    _pg_conn.commit()
-    _pg_conn.close()
+    lib.storage_update(sql_cmd)
 
 
 def handling_input_parameters():
@@ -305,13 +293,14 @@ if __name__ == "__main__":
     try:
         _logger = logger.setup(_MODULE_NAME)
 
-        # FIXME:
+        # Set the logger for the library
         lib._logger = _logger
 
     except Exception as ex:
         message = ex
-        _logger.debug("ERROR  |{0}|  ".format(message))
+        print("ERROR  |{err}| ".format(err=message))
         sys.exit(1)
+
     else:
 
         try:
@@ -329,17 +318,17 @@ if __name__ == "__main__":
 
             except Exception as ex:
                 message = ex
-                _logger.debug("ERROR Baxkup |{0}|  ".format(message))
+                _logger.error("error details |{0}|  ".format(message))
 
             finally:
                 try:
                     foglamp_start()
-                    _logger.debug("RESTORE |{0}|  ".format("OK"))
+                    _logger.info("RESTORE COMPLETED ")
 
                 except Exception as ex:
                     message = ex
-                    _logger.debug("ERROR STARTING |{0}|  ".format(message))
+                    _logger.error("restarting foglamp |{0}|  ".format(message))
 
         except Exception as ex:
             message = ex
-            _logger.debug("ERROR  |{0}|  ".format(message))
+            _logger.error("error details |{0}|  ".format(message))
