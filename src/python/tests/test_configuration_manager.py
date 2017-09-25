@@ -24,11 +24,11 @@ pytestmark = pytest.mark.asyncio
 
 async def delete_from_configuration():
     """Remove initial data from configuration table"""
-    stmt = _configuration_tbl.delete()
+    delete_from_table_stmt = _configuration_tbl.delete()
     try:
         async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
             async with engine.acquire() as conn:
-                await conn.execute(stmt)
+                await conn.execute(delete_from_table_stmt)
     except Exception:
         raise
 
@@ -64,7 +64,7 @@ class TestConfigurationManager:
             2. Each column in configuration table contains valid row information for
             each category
         """
-        stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
+        select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
         data = {
             'boolean': {'category_description': 'boolean type',
                         'category_value': {
@@ -122,19 +122,21 @@ class TestConfigurationManager:
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for count in conn.execute(stmt):
+                    async for count in conn.execute(select_count_stmt):
                         assert count[0] == len(list(data.keys()))
         except Exception:
             raise
+
+        all_category_name = await get_all_category_names()
+
         for key in data:
-            stmt = sa.select([_configuration_tbl.c.key, _configuration_tbl.c.description,
-                              _configuration_tbl.c.value]).select_from(
-                                  _configuration_tbl).where(
-                                      _configuration_tbl.c.key == key)
+            select_all_stmt = sa.select([_configuration_tbl.c.key, _configuration_tbl.c.description,
+                                         _configuration_tbl.c.value]).select_from(
+                                         _configuration_tbl).where(_configuration_tbl.c.key == key)
             try:
                 async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                     async with engine.acquire() as conn:
-                        async for result in conn.execute(stmt):
+                        async for result in conn.execute(select_all_stmt):
                             assert result[0].replace(" ", "") == key
                             assert result[1] == data[key]['category_description']
                             # category_value dictionary assert
@@ -156,8 +158,8 @@ class TestConfigurationManager:
             2. values in 'data' category are as expected
             3. values in 'info' category did not change
         """
-        stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
-            _configuration_tbl.c.key == 'boolean')
+        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
+            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
 
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
@@ -176,7 +178,7 @@ class TestConfigurationManager:
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for result in conn.execute(stmt):
+                    async for result in conn.execute(select_value_stmt):
                         assert sorted(list(result[0].keys())) == ['data', 'info']
                         # Test 'data' category
                         assert result[0]['data']['description'] == (
@@ -199,8 +201,8 @@ class TestConfigurationManager:
             2. `values` dictionary only has 'data' category
             3. values in 'data' category are as expected
         """
-        stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
-            _configuration_tbl.c.key == 'boolean')
+        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
+            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={'info': {
                                   'description': 'boolean type with default False',
@@ -209,7 +211,7 @@ class TestConfigurationManager:
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for result in conn.execute(stmt):
+                    async for result in conn.execute(select_value_stmt):
                         assert sorted(list(result[0].keys())) == ['info']
                         assert result[0]['info']['description'] == (
                             'boolean type with default False')
@@ -228,7 +230,7 @@ class TestConfigurationManager:
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for result in conn.execute(stmt):
+                    async for result in conn.execute(select_value_stmt):
                         assert sorted(list(result[0].keys())) == ['data']
                         assert result[0]['data']['description'] == (
                             'boolean type with default True')
@@ -405,8 +407,8 @@ class TestConfigurationManager:
             1. `default` and `value` in configuration.value are the same
             2. `value` in configuration.value gets updated, while `default` does not
         """
-        stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
-            _configuration_tbl.c.key == 'boolean')
+        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
+            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -416,7 +418,7 @@ class TestConfigurationManager:
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for result in conn.execute(stmt):
+                    async for result in conn.execute(select_value_stmt):
                         assert result[0]['info']['value'] == 'False'
                         assert result[0]['info']['default'] == 'False'
         except Exception:
@@ -427,7 +429,7 @@ class TestConfigurationManager:
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for result in conn.execute(stmt):
+                    async for result in conn.execute(select_value_stmt):
                         assert result[0]['info']['value'] == 'True'
                         assert result[0]['info']['default'] == 'False'
         except Exception:
@@ -442,14 +444,14 @@ class TestConfigurationManager:
             FOGL-522: When updating category item value, when the category_name
             doesn't exist, an error should get returned
         """
-        stmt = sa.select([_configuration_tbl.c.value]).select_from(_configuration_tbl).where(
-            _configuration_tbl.c.key == 'boolean')
+        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
+            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
         await set_category_item_value_entry(category_name='boolean',
                                             item_name='info', new_value_entry='True')
         try:
             async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
                 async with engine.acquire() as conn:
-                    async for result in conn.execute(stmt):
+                    async for result in conn.execute(select_value_stmt):
                         assert result is None
         except Exception:
             raise
@@ -612,3 +614,40 @@ class TestConfigurationManager:
             register_interest(category_name='integer', callback=None)
         assert "ValueError: Failed to register interest. callback cannot be None" in (
             str(error_exec))
+
+    async def test_get_all_category_names(self):
+        """
+        Test that get_call_category_names returns both the name, and category_description
+        :assert:
+            the description returned corresponds to the category_description found in the
+             `data` json object
+        """
+        data = {
+            'boolean': {'category_description': 'boolean type',
+                        'category_value': {
+                            'info': {
+                                'description': 'boolean type with default False',
+                                'type': 'boolean',
+                                'default': 'False'}}},
+            'integer': {'category_description': 'integer type',
+                        'category_value': {
+                            'info': {
+                                'description': 'integer type with default 1',
+                                'type': 'integer',
+                                'default': '1'}}},
+            'string': {'category_description': 'string type',
+                       'category_value': {
+                           'info': {
+                               'description': "string type with default 'ABCabc'",
+                               'type': 'string',
+                               'default': 'ABCabc'}}}
+        }
+
+        for category_name in data:
+            await create_category(category_name=category_name,
+                                  category_description=data[category_name]['category_description'],
+                                  category_value=data[category_name]['category_value'])
+
+        all_category_name = await get_all_category_names()
+        for set in all_category_name:
+            assert data[set[0].replace(" ", "")]['category_description'] == set[1]
