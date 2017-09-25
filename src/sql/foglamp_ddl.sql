@@ -76,9 +76,8 @@ CREATE DATABASE foglamp WITH
     ENCODING = 'UTF8'
     LC_COLLATE = 'en_US.UTF-8'
     LC_CTYPE = 'en_US.UTF-8'
-    TABLESPACE = foglamp
+    TABLESPACE = foglamp    
     CONNECTION LIMIT = -1;
-
 
 -- Connect to foglamp
 \connect foglamp
@@ -233,6 +232,15 @@ CREATE SEQUENCE foglamp.users_id_seq
     MAXVALUE 9223372036854775807
     CACHE 1;
 ALTER SEQUENCE foglamp.users_id_seq OWNER TO foglamp;
+
+CREATE SEQUENCE foglamp.backups_id_seq
+    INCREMENT 1
+    START 1
+    MINVALUE 1
+    MAXVALUE 9223372036854775807
+    CACHE 1;
+
+ALTER SEQUENCE foglamp.backups_id_seq OWNER TO foglamp;
 
 
 ----- TABLES
@@ -928,3 +936,26 @@ COMMENT ON TABLE foglamp.streams IS
 'Tracks types already created into PI Server.';
 
 ALTER TABLE foglamp.omf_created_objects OWNER to foglamp;
+
+
+-- Backups information
+CREATE TABLE foglamp.backups (
+    id         bigint                      NOT NULL DEFAULT nextval('foglamp.backups_id_seq'::regclass),
+    file_name  character varying(255)      NOT NULL DEFAULT ''::character varying COLLATE pg_catalog."default", -- Backup file name, absolute path
+    ts         timestamp(6) with time zone NOT NULL DEFAULT now(),                                              -- Backup creation timestamp
+    type       integer           	       NOT NULL,                                                            -- Backup type 0=full, 1=incremental
+    status     integer           	       NOT NULL,                                                            -- Backup exit status
+                                                                                                                --     0=Successful backup execution
+                                                                                                                --    -1=Running backup
+                                                                                                                --    -2=Restored backup
+    CONSTRAINT backup_pkey PRIMARY KEY (file_name)
+        USING INDEX TABLESPACE foglamp
+    )
+    WITH ( OIDS = FALSE )
+    TABLESPACE foglamp;
+
+
+COMMENT ON TABLE foglamp.backups IS
+'Store information about executed backups.';
+
+ALTER TABLE foglamp.backups OWNER to foglamp;

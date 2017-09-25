@@ -23,7 +23,7 @@ _MESSAGES_LIST = {
 
     # Information messages
     "i000001": "Started.",
-    "i000002": "Execution completed.",
+    "i000002": "Backup completed.",
 
     # Warning / Error messages
     "e000000": "general error",
@@ -32,14 +32,18 @@ _MESSAGES_LIST = {
     "e000003": "cannot retrieve the configuration from file - error details |{0}|",
     "e000004": "cannot delete/purge old backup file on file system - file name |{1}| error details |{0}|",
     "e000005": "cannot delete/purge old backup file on the storage system - file name |{1}| error details |{0}|",
+    "e000006": "an error was raised during the backup operation - error details |{0}|",
+    "e000007": "Backup failed.",
+
+    "e000010": "cannot start the logger - error details |{0}|",
 }
 """ Messages used for Information, Warning and Error notice """
 
 _CONFIG_FILE = "configuration.ini"
 
 # Configuration retrieved from the Configuration Manager
-_CONFIG_CATEGORY_NAME = 'BACKUP'
-_CONFIG_CATEGORY_DESCRIPTION = 'Configuration of the backups'
+_CONFIG_CATEGORY_NAME = 'BACK_REST'
+_CONFIG_CATEGORY_DESCRIPTION = 'Configuration of backups and restore'
 
 _CONFIG_DEFAULT = {
     "host": {
@@ -97,38 +101,6 @@ class BackupError(RuntimeError):
 
 
 # noinspection PyProtectedMember
-def log_backup(file_name, backup_exit_status):
-    """" # FIXME: """
-
-    _logger.debug("{0} - file name |{1}| ".format(sys._getframe().f_code.co_name, file_name))
-
-    sql_cmd = """
-        INSERT INTO foglamp.backups
-        (file_name, ts, type, status)
-        VALUES ('{file}', now(), 0, {status} );
-        """.format(file=file_name,
-                   status=backup_exit_status)
-
-    lib.storage_update(sql_cmd)
-
-
-# noinspection PyProtectedMember
-def update_backup_status(file_name, backup_exit_status):
-    """" # FIXME: """
-
-    _logger.debug("{0} - file name |{1}| ".format(sys._getframe().f_code.co_name, file_name))
-
-    sql_cmd = """
-
-        UPDATE foglamp.backups SET  status={status} WHERE file_name='{file}';
-
-        """.format(status=backup_exit_status,
-                   file=file_name,)
-
-    lib.storage_update(sql_cmd)
-
-
-# noinspection PyProtectedMember
 def exec_backup(_backup_file):
     """" # FIXME: """
 
@@ -145,14 +117,11 @@ def exec_backup(_backup_file):
 
     _status, output = lib.exec_wait_retry(cmd, True, timeout=_config['timeout'])
 
-    _logger.debug("{func} - _status |{status}|  output |{output}| ".format(
+    _logger.debug("{func} - status |{status}| - cmd |{cmd}|  output |{output}| ".format(
                 func=sys._getframe().f_code.co_name,
                 status=_status,
+                cmd=cmd,
                 output=output))
-
-    if _status != 0:
-        # FIXME:
-        raise BackupError
 
     return _status
 
@@ -187,6 +156,7 @@ def retrieve_configuration_from_manager():
                                                           (_CONFIG_CATEGORY_NAME))
 
     _config['host'] = _config_from_manager['host']['value']
+
     _config['port'] = int(_config_from_manager['port']['value'])
     _config['database'] = _config_from_manager['database']['value']
     _config['backup_dir'] = _config_from_manager['backup_dir']['value']
@@ -196,6 +166,8 @@ def retrieve_configuration_from_manager():
 
 def retrieve_configuration_from_file():
     """" # FIXME: """
+
+    global _config
 
     config_file = configparser.ConfigParser()
     config_file.read(_CONFIG_FILE)
@@ -229,7 +201,6 @@ def retrieve_configuration():
 
     try:
         retrieve_configuration_from_manager()
-        update_configuration_file()
 
     except Exception as _ex:
         _message = _MESSAGES_LIST["e000002"].format(_ex)
@@ -243,6 +214,8 @@ def retrieve_configuration():
             _logger.error(_message)
 
             raise ConfigRetrievalError(ex)
+    else:
+        update_configuration_file()
 
 
 def purge_old_backups():
@@ -284,7 +257,13 @@ def purge_old_backups():
 
 
 def start():
-    """" # FIXME: """
+    """  Setup the correct state for the execution of the restore
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     retrieve_configuration()
     purge_old_backups()
@@ -299,9 +278,10 @@ if __name__ == "__main__":
         lib._logger = _logger
 
     except Exception as ex:
-        message = ex
-        # noinspection PyProtectedMember
-        print("ERROR  |{err}| ".format(err=message))
+        message = _MESSAGES_LIST["e000010"].format(str(ex))
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S:")
+
+        print("{0} - ERROR - {1}".format(current_time, message))
         sys.exit(1)
 
     else:
@@ -312,19 +292,21 @@ if __name__ == "__main__":
             start()
 
             backup_file = generate_file_name()
-            log_backup(backup_file, -1)
+
+            lib.backup_status_create(backup_file, lib.BACKUP_STATUS_RUNNING)
             status = exec_backup(backup_file)
-            update_backup_status(backup_file, status)
+            lib.backup_status_update(backup_file, status)
 
-            _logger.info("BACKUP COMPLETED")
+            if status == lib.BACKUP_STATUS_SUCCESSFUL:
+                _logger.info(_MESSAGES_LIST["i000002"])
+                sys.exit(0)
 
-            sys.exit(0)
+            else:
+                _logger.error(_MESSAGES_LIST["e000007"])
+                sys.exit(1)
 
         except Exception as ex:
-            message = ex
-            # noinspection PyProtectedMember
-            message = "error details  |{err}| ".format(err=message)
+            message = _MESSAGES_LIST["e000006"].format(ex)
 
             _logger.exception(message)
-
             sys.exit(1)

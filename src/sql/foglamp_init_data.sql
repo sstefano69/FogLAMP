@@ -158,3 +158,4 @@ INSERT INTO foglamp.streams(id,destination_id,description, last_object,ts) VALUE
 
 -- FogLAMP statistics into PI configuration
 INSERT INTO foglamp.streams (id,destination_id,description, last_object,ts ) VALUES (2,1,'FogLAMP statistics into PI', 0,now());
+

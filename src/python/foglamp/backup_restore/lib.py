@@ -19,7 +19,11 @@ _logger = ""
 # FIXME: it will be removed using the DB layer
 _DB_CONNECTION_STRING = "user='foglamp' dbname='foglamp'"
 
-CMD_TIMEOUT = " timeout --signal=9  "
+_CMD_TIMEOUT = " timeout --signal=9  "
+
+BACKUP_STATUS_SUCCESSFUL = 0
+BACKUP_STATUS_RUNNING = -1
+BACKUP_STATUS_RESTORED = -2
 
 
 # noinspection PyProtectedMember
@@ -61,7 +65,7 @@ def exec_wait(_cmd, output_capture=False, timeout=0):
     _output = ""
 
     if timeout != 0:
-        _cmd = CMD_TIMEOUT + str(timeout) + " " + _cmd
+        _cmd = _CMD_TIMEOUT + str(timeout) + " " + _cmd
         _logger.debug("Executing command using the timeout |{timeout}| ".format(timeout=timeout))
 
     _logger.debug("{func} - cmd |{cmd}| ".format(func=sys._getframe().f_code.co_name,
@@ -128,6 +132,55 @@ def exec_wait_retry(cmd, output_capture=False, status_ok=0, max_retry=3,  write_
             loop_continue = False
 
     return _status, output
+
+
+# noinspection PyProtectedMember
+def backup_status_create(file_name, status):
+    """ Logs the creation of the backup in the Storage layer
+
+    Args:
+        file_name: file_name, as a full path, used as if of the backup
+        status: BACKUP_STATUS_RUNNING
+    Returns:
+    Raises:
+    Todo:
+    """
+
+    _logger.debug("{0} - file name |{1}| ".format(sys._getframe().f_code.co_name, file_name))
+
+    sql_cmd = """
+        INSERT INTO foglamp.backups
+        (file_name, ts, type, status)
+        VALUES ('{file}', now(), 0, {status} );
+        """.format(file=file_name,
+                   status=status)
+
+    storage_update(sql_cmd)
+
+
+# noinspection PyProtectedMember
+def backup_status_update(file_name, status):
+    """ Update the status of the backup in the Storage layer
+
+    Args:
+        file_name: file_name, as a full path, used as if of the backup
+        status: {exit status of the backup|BACKUP_STATUS_RESTORED|}
+    Returns:
+    Raises:
+    Todo:
+    """
+
+    _logger.debug("{0} - file name |{1}| ".format(sys._getframe().f_code.co_name, file_name))
+
+    sql_cmd = """
+
+        UPDATE foglamp.backups SET  status={status} WHERE file_name='{file}';
+
+        """.format(status=status,
+                   file=file_name, )
+
+    storage_update(sql_cmd)
+
 
 if __name__ == "__main__":
 
