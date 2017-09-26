@@ -2,11 +2,20 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2017
 
-"""  backup
+""" Restores the entire FogLAMP repository from a previous backup.
+It executes a full cold restore, FogLAMP will be stopped before the starts of the restore and restarted at the and.
+
+The option -f is available to restore a specific file,
+the full path should be provided like for example : -f /tmp/foglamp_2017_09_25_15_10_22.dump
+
+The latest backup will be restore if no -f option will be used.
+
+It could work also without the configuration manager,
+retrieving the parameters for the execution from the local file 'configuration.ini'.
 
 """
 
-# FIXME:
+
 import argparse
 import time
 import sys
@@ -36,6 +45,7 @@ _MESSAGES_LIST = {
     "e000006": "cannot start FogLAMP after the restore - error details |{0}|",
     "e000007": "cannot restore the backup, restarting FogLAMP - error details |{0}|",
     "e000008": "cannot identify FogLAMP status, the maximum number of retries has been reached - error details |{0}|",
+    "e000009": "cannot restore the backup, either a backup or a restore is already running - pid |{0}|",
 
     "e000010": "cannot start the logger - error details |{0}|",
 }
@@ -76,10 +86,7 @@ _CONFIG_DEFAULT = {
     "timeout": {
         "description": "timeout in seconds for the execution of the commands.",
         "type": "integer",
-
-        # FIXME:
-        "default": "20"
-        # "default": "1200"
+        "default": "1200"
     },
 
 }
@@ -105,37 +112,37 @@ STATUS_RUNNING = 2
 
 
 class ConfigRetrievalError(RuntimeError):
-    """ # FIXME: """
+    """ Unable to retrieve the parameters from the configuration manager """
     pass
 
 
 class RestoreError(RuntimeError):
-    """ # FIXME: """
+    """ An error occurred during the restore operation """
     pass
 
 
 class NoBackupAvailableError(RuntimeError):
-    """ # FIXME: """
+    """ No backup in the proper state is available """
     pass
 
 
 class InvalidFileNameError(RuntimeError):
-    """ # FIXME: """
+    """ Unable to use provided file name """
     pass
 
 
 class FileNameError(RuntimeError):
-    """ # FIXME: """
+    """ Impossible to identify an unique backup to restore """
     pass
 
 
 class FogLAMPStartError(RuntimeError):
-    """ # FIXME: """
+    """ Unable to start FogLAMP """
     pass
 
 
 class FogLAMPStopError(RuntimeError):
-    """ # FIXME: """
+    """ Unable to stop FogLAMP """
     pass
 
 
@@ -164,17 +171,7 @@ def foglamp_stop():
                 output=output))
 
     if status == 0:
-        if foglamp_status() == STATUS_STOPPED:
-            # FIXME:
-            cmd = "pkill -9  -f 'python3 -m foglamp.device'"
-            status, output = lib.exec_wait(cmd, True, timeout=_config['timeout'])
-
-            _logger.debug("FogLAMP pkill {0} - output |{1}| -  status |{2}|  ".format(
-                                                                        sys._getframe().f_code.co_name,
-                                                                        output,
-                                                                        status))
-
-        else:
+        if foglamp_status() != STATUS_STOPPED:
             raise FogLAMPStopError(output)
     else:
         raise FogLAMPStopError(output)
@@ -402,7 +399,13 @@ def handling_input_parameters():
 
 
 def retrieve_configuration_from_manager():
-    """" # FIXME: """
+    """" Retrieves the configuration from the configuration manager
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     global _config_from_manager
     global _config
@@ -422,8 +425,15 @@ def retrieve_configuration_from_manager():
     _config['timeout'] = int(_config_from_manager['timeout']['value'])
 
 
+# noinspection PyProtectedMember
 def retrieve_configuration_from_file():
-    """" # FIXME: """
+    """" Retrieves the configuration from a local file
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     global _config
 
@@ -440,7 +450,13 @@ def retrieve_configuration_from_file():
 
 
 def update_configuration_file():
-    """" # FIXME: """
+    """ Updates the configuration file with the values retrieved from tha manager.
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
 
@@ -457,7 +473,15 @@ def update_configuration_file():
 
 
 def retrieve_configuration():
-    """" # FIXME: """
+    """  Retrieves the configuration either from the manager or from a local file.
+    the local configuration file is used if the configuration manager is not available,
+    and updated with the values retrieved from tha manager when feasible.
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
 
@@ -491,7 +515,89 @@ def start():
 
     _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
 
+    proceed_execution = False
+
     retrieve_configuration()
+
+    pid = job.is_running()
+    if pid == 0:
+
+        # no job is running
+        pid = os.getpid()
+        job.set_as_running(lib.JOB_SEM_FILE_RESTORE, pid)
+        proceed_execution = True
+    else:
+        _message = _MESSAGES_LIST["e000009"].format(pid)
+        _logger.warning("{0}".format(_message))
+
+    return proceed_execution
+
+
+def stop():
+    """ Set the correct state to terminate the execution
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
+
+    _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
+
+    job.set_as_completed(lib.JOB_SEM_FILE_RESTORE)
+
+
+def main_code():
+    """ Main - Executes the restore functionality
+
+    Args:
+    Returns:
+        exit_value: value to be used for the sys.exit
+
+    Raises:
+    Todo:
+    """
+
+    # Checks if a file name is provided as command line parameter, if not it considers latest backup
+    file_name = handling_input_parameters()
+
+    if not file_name:
+        file_name = identify_last_backup()
+    else:
+        if not os.path.exists(file_name):
+            _message = _MESSAGES_LIST["e000004"].format(file_name)
+
+            raise FileNotFoundError(_message)
+
+    foglamp_stop()
+
+    # Cases :
+    # exit 0 - restore=ok, start=ok
+    # exit 1 - restore=ok, start=error
+    # exit 1 - restore=error, regardless of the start
+    try:
+        exec_restore(file_name)
+        lib.backup_status_update(file_name, lib.BACKUP_STATUS_RESTORED)
+        _exit_value = 0
+
+    except Exception as _ex:
+        _message = _MESSAGES_LIST["e000007"].format(_ex)
+
+        _logger.exception(_message)
+        _exit_value = 1
+
+    finally:
+        try:
+            foglamp_start()
+            _logger.info(_MESSAGES_LIST["i000002"])
+
+        except Exception as _ex:
+            _message = _MESSAGES_LIST["e000006"].format(_ex)
+
+            _logger.exception(_message)
+            _exit_value = 1
+
+    return _exit_value
 
 
 if __name__ == "__main__":
@@ -512,47 +618,14 @@ if __name__ == "__main__":
     else:
         try:
             _event_loop = asyncio.get_event_loop()
+            job = lib.Job()
 
-            start()
+            exit_value = 1
 
-            # Checks if a file name is provided as command line parameter, if not it considers latest backup
-            file_name = handling_input_parameters()
+            if start():
+                exit_value = main_code()
 
-            if not file_name:
-                file_name = identify_last_backup()
-            else:
-                if not os.path.exists(file_name):
-                    message = _MESSAGES_LIST["e000004"].format(file_name)
-
-                    raise FileNotFoundError(message)
-
-            foglamp_stop()
-
-            # Cases :
-            # exit 0 - restore=ok, start=ok
-            # exit 1 - restore=ok, start=error
-            # exit 1 - restore=error, regardless of the start
-            try:
-                exec_restore(file_name)
-                lib.backup_status_update(file_name, lib.BACKUP_STATUS_RESTORED)
-                exit_value = 0
-
-            except Exception as ex:
-                message = _MESSAGES_LIST["e000007"].format(ex)
-
-                _logger.exception(message)
-                exit_value = 1
-
-            finally:
-                try:
-                    foglamp_start()
-                    _logger.info(_MESSAGES_LIST["i000002"])
-
-                except Exception as ex:
-                    message = _MESSAGES_LIST["e000006"].format(ex)
-
-                    _logger.exception(message)
-                    exit_value = 1
+                stop()
 
             sys.exit(exit_value)
 
@@ -560,4 +633,5 @@ if __name__ == "__main__":
             message = _MESSAGES_LIST["e000005"].format(ex)
 
             _logger.exception(message)
+            stop()
             sys.exit(1)

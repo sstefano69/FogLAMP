@@ -2,7 +2,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2017
 
-"""  backup
+""" Backups the entire FogLAMP repository into a file in the local filesystem, it executes a full warm backup.
+
+The information about executed backups are stored into the Storage Layer.
+
+The parameters for the execution are retrieved from the configuration manager.
+It could work also without the configuration manager,
+retrieving the parameters for the execution from the local file 'configuration.ini'.
 
 """
 
@@ -34,6 +40,7 @@ _MESSAGES_LIST = {
     "e000005": "cannot delete/purge old backup file on the storage system - file name |{1}| error details |{0}|",
     "e000006": "an error was raised during the backup operation - error details |{0}|",
     "e000007": "Backup failed.",
+    "e000008": "cannot execute the backup, either a backup or a restore is already running - pid |{0}|",
 
     "e000010": "cannot start the logger - error details |{0}|",
 }
@@ -74,10 +81,7 @@ _CONFIG_DEFAULT = {
     "timeout": {
         "description": "timeout in seconds for the execution of the commands.",
         "type": "integer",
-
-        # FIXME:
-        "default": "20"
-        # "default": "1200"
+        "default": "1200"
     },
 
 }
@@ -91,18 +95,24 @@ _event_loop = ""
 
 
 class ConfigRetrievalError(RuntimeError):
-    """ # FIXME: """
+    """ Unable to retrieve the parameters from the configuration manager """
     pass
 
 
 class BackupError(RuntimeError):
-    """ # FIXME: """
+    """ An error occurred during the backup operation """
     pass
 
 
 # noinspection PyProtectedMember
 def exec_backup(_backup_file):
-    """" # FIXME: """
+    """ Backups the entire FogLAMP repository into a file in the local file system
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     _logger.debug("{0} - ".format(sys._getframe().f_code.co_name))
 
@@ -128,8 +138,13 @@ def exec_backup(_backup_file):
 
 # noinspection PyProtectedMember
 def generate_file_name():
-    """" # FIXME: """
+    """ Generates the file name for the backup operation, it uses hours/minutes/seconds for the file name generation
 
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
     _logger.debug("{0} - ".format(sys._getframe().f_code.co_name))
 
     # Evaluates the parameters
@@ -144,7 +159,13 @@ def generate_file_name():
 
 
 def retrieve_configuration_from_manager():
-    """" # FIXME: """
+    """" Retrieves the configuration from the configuration manager
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     global _config_from_manager
     global _config
@@ -165,7 +186,13 @@ def retrieve_configuration_from_manager():
 
 
 def retrieve_configuration_from_file():
-    """" # FIXME: """
+    """" Retrieves the configuration from a local file
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     global _config
 
@@ -181,7 +208,13 @@ def retrieve_configuration_from_file():
 
 
 def update_configuration_file():
-    """" # FIXME: """
+    """ Updates the configuration file with the values retrieved from tha manager.
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     config_file = configparser.ConfigParser()
 
@@ -197,7 +230,15 @@ def update_configuration_file():
 
 
 def retrieve_configuration():
-    """" # FIXME: """
+    """  Retrieves the configuration either from the manager or from a local file.
+    the local configuration file is used if the configuration manager is not available,
+    and updated with the values retrieved from tha manager when feasible.
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     try:
         retrieve_configuration_from_manager()
@@ -219,7 +260,13 @@ def retrieve_configuration():
 
 
 def purge_old_backups():
-    """" # FIXME: """
+    """  Deletes old backup in relation at the retention parameter retrieved from the configuration manager
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
 
     # -1 so at the end of the execution will remain _config['retention'] backups
     backup_to_delete = _config['retention'] - 1
@@ -264,9 +311,69 @@ def start():
     Raises:
     Todo:
     """
+    _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
+
+    proceed_execution = False
 
     retrieve_configuration()
+
+    pid = job.is_running()
+    if pid == 0:
+
+        # no job is running
+        pid = os.getpid()
+        job.set_as_running(lib.JOB_SEM_FILE_BACKUP, pid)
+        proceed_execution = True
+
+    else:
+        _message = _MESSAGES_LIST["e000008"].format(pid)
+        _logger.warning("{0}".format(_message))
+
+    return proceed_execution
+
+
+def stop():
+    """ Set the correct state to terminate the execution
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
+
+    _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
+
+    job.set_as_completed(lib.JOB_SEM_FILE_BACKUP)
+
+
+def main_code():
+    """ Main - Executes the backup functionality
+
+    Args:
+    Returns:
+        exit_value: value to be used for the sys.exit
+
+    Raises:
+    Todo:
+    """
+
     purge_old_backups()
+
+    backup_file = generate_file_name()
+
+    lib.backup_status_create(backup_file, lib.BACKUP_STATUS_RUNNING)
+    status = exec_backup(backup_file)
+    lib.backup_status_update(backup_file, status)
+
+    if status == lib.BACKUP_STATUS_SUCCESSFUL:
+        _logger.info(_MESSAGES_LIST["i000002"])
+        _exit_value = 0
+
+    else:
+        _logger.error(_MESSAGES_LIST["e000007"])
+        _exit_value = 1
+
+    return _exit_value
 
 
 if __name__ == "__main__":
@@ -285,25 +392,18 @@ if __name__ == "__main__":
         sys.exit(1)
 
     else:
-
         try:
             _event_loop = asyncio.get_event_loop()
+            job = lib.Job()
 
-            start()
+            exit_value = 1
 
-            backup_file = generate_file_name()
+            if start():
+                exit_value = main_code()
 
-            lib.backup_status_create(backup_file, lib.BACKUP_STATUS_RUNNING)
-            status = exec_backup(backup_file)
-            lib.backup_status_update(backup_file, status)
+                stop()
 
-            if status == lib.BACKUP_STATUS_SUCCESSFUL:
-                _logger.info(_MESSAGES_LIST["i000002"])
-                sys.exit(0)
-
-            else:
-                _logger.error(_MESSAGES_LIST["e000007"])
-                sys.exit(1)
+            sys.exit(exit_value)
 
         except Exception as ex:
             message = _MESSAGES_LIST["e000006"].format(ex)
