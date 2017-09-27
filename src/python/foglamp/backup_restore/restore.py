@@ -3,18 +3,19 @@
 # Copyright (C) 2017
 
 """ Restores the entire FogLAMP repository from a previous backup.
-It executes a full cold restore, FogLAMP will be stopped before the starts of the restore and restarted at the and.
+
+It executes a full cold restore, FogLAMP will be stopped before the start of
+the restore and restarted at the end.
 
 The option -f is available to restore a specific file,
 the full path should be provided like for example : -f /tmp/foglamp_2017_09_25_15_10_22.dump
 
-The latest backup will be restore if no -f option will be used.
+The latest backup will be restored if no -f option will be used.
 
 It could work also without the configuration manager,
 retrieving the parameters for the execution from the local file 'configuration.ini'.
 
 """
-
 
 import argparse
 import time

@@ -23,8 +23,8 @@ _MESSAGES_LIST = {
 
     # Warning / Error messages
     "e000000": "general error",
-    "e000001": "semaphore file deleted it was already existing - file |{0}|",
-    "e000002": "semaphore file deleted as it existed but the corresponding process was not running "
+    "e000001": "semaphore file deleted because it was already in existence - file |{0}|",
+    "e000002": "semaphore file deleted because it existed even if the corresponding process was not running "
                "- file |{0}| - pid |{1}|",
 }
 """ Messages used for Information, Warning and Error notice """
