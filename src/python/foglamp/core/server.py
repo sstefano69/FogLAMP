@@ -10,6 +10,7 @@ import signal
 import asyncio
 from aiohttp import web
 
+from foglamp import logger
 from foglamp.core import routes
 from foglamp.core import middleware
 from foglamp.core.scheduler import Scheduler
@@ -19,9 +20,11 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
+_LOGGER = logger.setup(__name__)  # logging.Logger
+
 
 class Server:
-    """Core server"""
+    """FOGLamp core server. Starts the FogLAMP scheduler and the FogLAMP REST server."""
 
     """Class attributes"""
     scheduler = None
@@ -47,7 +50,6 @@ class Server:
     def start(cls):
         """Starts the server"""
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
 
         # Register signal handlers
         # Registering SIGTERM creates an error at shutdown. See
@@ -55,26 +57,31 @@ class Server:
         for signal_name in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(
                 signal_name,
-                lambda: asyncio.ensure_future(cls.stop(loop)))
+                lambda: asyncio.ensure_future(cls._stop(loop)))
+
+        # The scheduler must start first because the REST API interacts with it
+        loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
 
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
-        web.run_app(cls._make_app(), host='0.0.0.0', port=8082)
+        web.run_app(cls._make_app(), host='0.0.0.0', port=8082, handle_signals=False)
 
     @classmethod
-    async def stop(cls, loop):
+    async def _stop(cls, loop):
         """Attempts to stop the server
 
         If the scheduler stops successfully, the event loop is
         stopped.
-
-        Raises TimeoutError:
-            A task is still running. Wait and try again.
         """
         if cls.scheduler:
-            await cls.scheduler.stop()
-            cls.scheduler = None
+            try:
+                await cls.scheduler.stop()
+                cls.scheduler = None
+            except TimeoutError:
+                _LOGGER.exception('Unable to stop the scheduler')
+                return
 
+        # Cancel asyncio tasks
         for task in asyncio.Task.all_tasks():
             task.cancel()
-        loop.stop()
 
+        loop.stop()

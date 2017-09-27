@@ -24,6 +24,7 @@ Supports a number of REST API:
 
   All but the /foglamp/asset API call take a set of optional query parameters
     limit=x     Return the first x rows only
+    skip=x      skip first n entries and used with limit to implemented paged interfaces
     seconds=x   Limit the data return to be less than x seconds old
     minutes=x   Limit the data returned to be less than x minutes old
     hours=x     Limit the data returned to be less than x hours old
@@ -36,6 +37,7 @@ Supports a number of REST API:
 
 import asyncpg
 import json
+import os
 from aiohttp import web
 
 __author__ = "Mark Riddoch"
@@ -43,8 +45,16 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-__DB_NAME = 'foglamp'
+__CONNECTION = {'user': 'foglamp', 'database': 'foglamp'}
+
+try:
+  snap_user_common = os.environ['SNAP_USER_COMMON']
+  unix_socket_dir = "{}/tmp/".format(snap_user_common)
+  __CONNECTION['host'] = unix_socket_dir
+except KeyError:
+  pass
 __DEFAULT_LIMIT = 20
+__DEFAULT_OFFSET = 0
 __TIMESTAMP_FMT = 'YYYY-MM-DD HH24:MI:SS.MS'
 
 
@@ -65,14 +75,14 @@ async def asset_counts(request):
     return a readings count.
 
     Return the result of the Postgres query 
-    select asset_code, count from readings group by asset_code;
+    SELECT asset_code, count(*) FROM readings GROUP BY asset_code;
     """
 
-    conn = await asyncpg.connect(database=__DB_NAME)
+    conn = await asyncpg.connect(**__CONNECTION)
 
     # Select the assets from the readings table
     rows = await conn.fetch(
-        'select asset_code, count(*) from readings group by asset_code')
+        'SELECT asset_code, count(*) FROM readings GROUP BY asset_code')
     columns = ('asset_code', 'count')
     results = []
     for row in rows:
@@ -83,30 +93,36 @@ async def asset_counts(request):
 
     return web.json_response(results)
 
+
 async def asset(request):
     """
     Browse a particular asset for which we have recorded readings and
     return a readings with timestamps for the asset. The number of readings
     return is defaulted to a small number (20), this may be changed by supplying
-    the query parameter ?limit=xx
+    the query parameter ?limit=xx&skip=xx
 
     Return the result of the Postgres query 
-    select timestamp, reading from readings where asset_code = 'asset_code' order by user_ts limit 20
+    SELECT TO_CHAR(user_ts, '__TIMESTAMP_FMT') as "timestamp", (reading)::jsonFROM readings WHERE asset_code = 'asset_code' ORDER BY user_ts DESC LIMIT 20 OFFSET 0
     """
 
-    conn = await asyncpg.connect(database=__DB_NAME)
+    conn = await asyncpg.connect(**__CONNECTION)
     asset_code = request.match_info.get('asset_code', '')
 
-    query = 'select to_char(user_ts, \'{0}\') as "timestamp", (reading)::json from readings where asset_code = \'{1}\''.format(__TIMESTAMP_FMT, asset_code)
+    query = """
+            SELECT TO_CHAR(user_ts, '{0}') as "timestamp", (reading)::json
+            FROM readings WHERE asset_code = '{1}'
+            """.format(__TIMESTAMP_FMT, asset_code)
 
     query += _where_clause(request)
 
     # Add the order by and limit clause
     limit = __DEFAULT_LIMIT
+    offset = __DEFAULT_OFFSET
     if 'limit' in request.query:
         limit = request.query['limit']
+        offset = request.query['skip'] if 'skip' in request.query else __DEFAULT_OFFSET
 
-    orderby = ' order by user_ts limit {0}'.format(limit)
+    orderby = ' ORDER BY user_ts DESC LIMIT {0} OFFSET {1}'.format(limit, offset)
     query += orderby
 
     # Select the assets from the readings table
@@ -121,12 +137,13 @@ async def asset(request):
 
     return web.json_response(results)
 
+
 async def asset_reading(request):
     """
     Browse a particular sensor value of a particular asset for which we have recorded readings and
     return the timestamp and reading value for that sensor. The number of rows returned
     is limited to a small number, this number may be altered by use of
-    the query parameter limit=xxx.
+    the query parameter limit=xxx&skip=xxx.
 
     The readings returned can also be time limited by use of the query
     parameter seconds=sss. This defines a number of seconds that the reading
@@ -143,37 +160,43 @@ async def asset_reading(request):
     Only one of hour, minutes or seconds should be supplied
 
     Return the result of the Postgres query 
-    select asset_code, count from readings group by asset_code;
+    SELECT TO_CHAR(user_ts, '__TIMESTAMP_FMT') as "timestamp", reading->>'reading' FROM readings WHERE asset_code = 'asset_code' ORDER BY user_ts DESC LIMIT 20 OFFSET 0
     """
 
-    conn = await asyncpg.connect(database=__DB_NAME)
+    conn = await asyncpg.connect(**__CONNECTION)
     asset_code = request.match_info.get('asset_code', '')
     reading = request.match_info.get('reading', '')
 
-    query = 'select to_char(user_ts, \'{0}\') as "Time", reading->>\'{2}\' from readings where asset_code = \'{1}\''.format(__TIMESTAMP_FMT, asset_code, reading)
+    query = """
+            SELECT TO_CHAR(user_ts, '{0}') as "timestamp", reading->>'{2}' as "reading" 
+            FROM readings WHERE asset_code = '{1}'
+            """.format(__TIMESTAMP_FMT, asset_code, reading)
 
     # Process additional where clause conditions
     query += _where_clause(request)
 
     # Add the order by and limit clause
     limit = __DEFAULT_LIMIT
+    offset = __DEFAULT_OFFSET
     if 'limit' in request.query:
         limit = request.query['limit']
+        offset = request.query['skip'] if 'skip' in request.query else __DEFAULT_OFFSET
 
-    orderby = ' order by user_ts limit {0}'.format(limit)
+    orderby = ' ORDER BY user_ts DESC LIMIT {0} OFFSET {1}'.format(limit, offset)
     query += orderby
 
     # Select the assets from the readings table
     rows = await conn.fetch(query)
-    columns = ('timestamp', reading)
     results = []
     for row in rows:
-        results.append(dict(zip(columns, row)))
+        jrow = {'timestamp': row['timestamp'], reading: json.loads(row['reading'])}
+        results.append(jrow)
 
     # Close the connection.
     await conn.close()
 
     return web.json_response(results)
+
 
 async def asset_summary(request):
     """
@@ -196,25 +219,28 @@ async def asset_summary(request):
     Only one of hour, minutes or seconds should be supplied
 
     Return the result of the Postgres query 
-    select min(reading->>'reading'), max(reading->>'reading'), avg((reading->>'reading')::float) from readings where asset_code = 'asset_code'
+    SELECT MIN(reading->>'reading'), MAX(reading->>'reading'), AVG((reading->>'reading')::float) FROM readings WHERE asset_code = 'asset_code'
     """
 
-    conn = await asyncpg.connect(database=__DB_NAME)
+    conn = await asyncpg.connect(**__CONNECTION)
     asset_code = request.match_info.get('asset_code', '')
     reading = request.match_info.get('reading', '')
 
-    query = 'select min(reading->>\'{1}\'), max(reading->>\'{1}\'), avg((reading->>\'{1}\')::float) from readings where asset_code = \'{0}\''.format(asset_code, reading)
+    query = """
+            SELECT MIN(reading->>'{1}'), MAX(reading->>'{1}'), AVG((reading->>'{1}')::float)
+            FROM readings WHERE asset_code = '{0}'
+            """.format(asset_code, reading)
 
     query += _where_clause(request)
     # Select the assets from the readings table
     row = await conn.fetchrow(query)
-    columns = ('min', 'max', 'average')
-    results = dict(zip(columns, row))
+    results = {'min': json.loads(row['min']), 'max': json.loads(row['max']), 'average': row['avg']}
 
     # Close the connection.
     await conn.close()
 
     return web.json_response({reading: results})
+
 
 async def asset_averages(request):
     """
@@ -239,10 +265,10 @@ async def asset_averages(request):
     query parameter group. This may be set to seconds, minutes or hours
 
     Return the result of the Postgres query 
-    select user_ts avg((reading->>'reading')::float) from readings where asset_code = 'asset_code' group by user_ts
+    SELECT user_ts AVG((reading->>'reading')::float) FROM readings WHERE asset_code = 'asset_code' GROUP BY user_ts
     """
 
-    conn = await asyncpg.connect(database=__DB_NAME)
+    conn = await asyncpg.connect(**__CONNECTION)
     asset_code = request.match_info.get('asset_code', '')
     reading = request.match_info.get('reading', '')
 
@@ -255,25 +281,29 @@ async def asset_averages(request):
         elif request.query['group'] == 'hours':
             ts_restraint = 'YYYY-MM-DD HH24'
 
-    query = 'select to_char(user_ts, \'{2}\'), min(reading->>\'{1}\'), max(reading->>\'{1}\'), avg((reading->>\'{1}\')::float) from readings where asset_code = \'{0}\''.format(asset_code, reading, ts_restraint)
+    query = """
+            SELECT TO_CHAR(user_ts, '{2}') as "timestamp", MIN(reading->>'{1}'), MAX(reading->>'{1}'), AVG((reading->>'{1}')::float)
+            FROM readings WHERE asset_code = '{0}'
+            """.format(asset_code, reading, ts_restraint)
 
     query += _where_clause(request)
 
     # Add the group by
-    query += ' group by to_char(user_ts, \'{0}\') order by 1'.format(ts_restraint)
+    query += """ GROUP BY TO_CHAR(user_ts, '{0}') ORDER BY 1""".format(ts_restraint)
 
     # Add the order by and limit clause
     limit = __DEFAULT_LIMIT
     if 'limit' in request.query:
         limit = request.query['limit']
-    query += ' limit {0}'.format(limit)
+    query += ' LIMIT {0}'.format(limit)
 
     # Select the assets from the readings table
     rows = await conn.fetch(query)
-    columns = ('time', 'min', 'max', 'average')
     results = []
     for row in rows:
-        results.append(dict(zip(columns, row)))
+        jrow = {'time': row['timestamp'], 'min': json.loads(row['min']),
+                'max': json.loads(row['max']), 'average': row['avg']}
+        results.append(jrow)
 
     # Close the connection.
     await conn.close()
@@ -285,10 +315,10 @@ def _where_clause(request):
     where_clause = ''
 
     if 'seconds' in request.query:
-        where_clause += ' and user_ts > NOW() - INTERVAL \'{0} seconds\''.format(request.query['seconds'])
+        where_clause += """ AND user_ts > NOW() - INTERVAL '{0} seconds'""".format(request.query['seconds'])
     elif 'minutes' in request.query:
-        where_clause += ' and user_ts > NOW() - INTERVAL \'{0} minutes\''.format(request.query['minutes'])
+        where_clause += """ AND user_ts > NOW() - INTERVAL '{0} minutes'""".format(request.query['minutes'])
     elif 'hours' in request.query:
-        where_clause += ' and user_ts > NOW() - INTERVAL \'{0} hours\''.format(request.query['hours'])
+        where_clause += """ AND user_ts > NOW() - INTERVAL '{0} hours'""".format(request.query['hours'])
 
     return where_clause
