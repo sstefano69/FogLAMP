@@ -14,6 +14,7 @@ from foglamp import logger
 from foglamp.core import routes
 from foglamp.core import middleware
 from foglamp.core.scheduler import Scheduler
+from foglamp.core.registrar import Registrar
 
 __author__ = "Praveen Garg, Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -22,13 +23,14 @@ __version__ = "${VERSION}"
 
 _LOGGER = logger.setup(__name__)  # logging.Logger
 
-
 class Server:
     """FOGLamp core server. Starts the FogLAMP scheduler and the FogLAMP REST server."""
 
     """Class attributes"""
     scheduler = None
     """ foglamp.core.Scheduler """
+    registrar = None
+    """ foglamp.core.Registrar """
 
     @staticmethod
     def _make_app():
@@ -47,6 +49,12 @@ class Server:
         await cls.scheduler.start()
 
     @classmethod
+    async def _start_registrar(cls):
+        """Starts the microservice registrar"""
+        cls.registrar = Registrar()
+        await cls.registrar.start()
+
+    @classmethod
     def start(cls):
         """Starts the server"""
         loop = asyncio.get_event_loop()
@@ -61,6 +69,9 @@ class Server:
 
         # The scheduler must start first because the REST API interacts with it
         loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
+
+        # The registrar must start first because the REST API interacts with it
+        loop.run_until_complete(asyncio.ensure_future(cls._start_registrar()))
 
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
         web.run_app(cls._make_app(), host='0.0.0.0', port=8082, handle_signals=False)

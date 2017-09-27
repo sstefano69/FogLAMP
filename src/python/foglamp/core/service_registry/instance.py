@@ -23,7 +23,7 @@ class Service(object):
         Storage = 1
         Device = 2
 
-    __slots__ = ['_id', '_name', '_type', '_protocol', '_address', '_port']
+    __slots__ = ['_id', '_name', '_type', '_protocol', '_address', '_port', '_status']
 
     def __init__(self, s_id, s_name, s_type, s_protocol, s_address, s_port):
         self._id = s_id
@@ -32,6 +32,7 @@ class Service(object):
         self._protocol = s_protocol
         self._address = s_address
         self._port = int(s_port)
+        self._status = 0
         # TODO: MUST
         # well, reserve the core api PORT
         # or keep core service registered as default
@@ -97,8 +98,8 @@ class Service(object):
                 raise Service.AlreadyExistsWithTheSameAddressAndPort
             if not isinstance(port, int):
                 raise Service.NonNumericPortError
-            if int(port) == 8082:
-                raise Service.ReservedPortError
+            # if int(port) == 8082:
+            #     raise Service.ReservedPortError
 
             service_id = str(uuid.uuid4())
             registered_service = Service(service_id, name, s_type, protocol, address, port)
