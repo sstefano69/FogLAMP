@@ -159,3 +159,11 @@ INSERT INTO foglamp.streams(id,destination_id,description, last_object,ts) VALUE
 -- FogLAMP statistics into PI configuration
 INSERT INTO foglamp.streams (id,destination_id,description, last_object,ts ) VALUES (2,1,'FogLAMP statistics into PI', 0,now());
 
+-- Scheduled backup
+-- insert into foglamp.scheduled_processes (name, script) values ('backup','["python3", "-m", "foglamp.backup_restore.backup"]');
+
+-- Run Backup every 60 seconds
+-- insert into foglamp.schedules(id, schedule_name, process_name, schedule_type,
+-- schedule_time, schedule_interval, exclusive)
+-- values ('d1631422-9ec6-11e7-abc4-cec278b6b50a', 'backup', 'backup', 3,
+-- NULL, '00:00:60', true);

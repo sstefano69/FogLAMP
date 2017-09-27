@@ -19,9 +19,10 @@ retrieving the parameters for the execution from the local file 'configuration.i
 import argparse
 import time
 import sys
-import configparser
 import asyncio
+import configparser
 import os
+import signal
 
 from foglamp import logger, configuration_manager
 import foglamp.backup_restore.lib as lib
@@ -32,8 +33,8 @@ _MODULE_NAME = "foglamp_restore"
 _MESSAGES_LIST = {
 
     # Information messages
-    "i000001": "Started.",
-    "i000002": "Restore completed.",
+    "i000001": "Execution started.",
+    "i000002": "Execution completed.",
 
     # Warning / Error messages
     "e000000": "general error",
@@ -99,12 +100,12 @@ _logger = ""
 _event_loop = ""
 
 # FIXME:
+# _base_cmd = "python3 -m foglamp {0}"
+
 _base_cmd = "bash -c '"
 _base_cmd += "source /home/foglamp/Development/FogLAMP/src/python/venv/foglamp/bin/activate;\\"
 _base_cmd += "python3 -m foglamp {0}"
 _base_cmd += "'"
-
-# base_cmd = "python3 -m foglamp {0}"
 
 STATUS_NOT_DEFINED = 0
 STATUS_STOPPED = 1
@@ -517,6 +518,11 @@ def start():
 
     proceed_execution = False
 
+    # Setup signals handlers
+    signal.signal(signal.SIGHUP, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     retrieve_configuration()
 
     pid = job.is_running()
@@ -589,7 +595,6 @@ def main_code():
     finally:
         try:
             foglamp_start()
-            _logger.info(_MESSAGES_LIST["i000002"])
 
         except Exception as _ex:
             _message = _MESSAGES_LIST["e000006"].format(_ex)
@@ -600,10 +605,24 @@ def main_code():
     return _exit_value
 
 
+# noinspection PyUnusedLocal
+def signal_handler(_signo,  _stack_frame):
+    """ Handles signals to avoid termination doing FogLAMP stop
+
+    Args:
+    Returns:
+    Raises:
+    Todo:
+    """
+
+    _logger.debug("{func} - signal |{signo}| ".format(func=sys._getframe().f_code.co_name, signo=_signo))
+
+
 if __name__ == "__main__":
 
     try:
         _logger = logger.setup(_MODULE_NAME)
+        _logger.info(_MESSAGES_LIST["i000001"])
 
         # Set the logger for the library
         lib._logger = _logger
@@ -627,11 +646,13 @@ if __name__ == "__main__":
 
                 stop()
 
+            _logger.info(_MESSAGES_LIST["i000002"])
             sys.exit(exit_value)
 
         except Exception as ex:
             message = _MESSAGES_LIST["e000005"].format(ex)
-
             _logger.exception(message)
+
             stop()
+            _logger.info(_MESSAGES_LIST["i000002"])
             sys.exit(1)

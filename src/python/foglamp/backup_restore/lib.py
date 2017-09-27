@@ -39,7 +39,9 @@ BACKUP_STATUS_SUCCESSFUL = 0
 BACKUP_STATUS_RUNNING = -1
 BACKUP_STATUS_RESTORED = -2
 
-JOB_SEM_FILE_PATH = "/home/foglamp/Development/FogLAMP/src/python/foglamp/backup_restore"
+# FIXME:
+# JOB_SEM_FILE_PATH = "/home/foglamp/Development/FogLAMP/src/python/foglamp/backup_restore"
+JOB_SEM_FILE_PATH = "/tmp"
 JOB_SEM_FILE_BACKUP = "backup.sem"
 JOB_SEM_FILE_RESTORE = "restore.sem"
 

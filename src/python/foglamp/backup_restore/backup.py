@@ -28,8 +28,8 @@ _MODULE_NAME = "foglamp_backup"
 _MESSAGES_LIST = {
 
     # Information messages
-    "i000001": "Started.",
-    "i000002": "Backup completed.",
+    "i000001": "Execution started.",
+    "i000002": "Execution completed.",
 
     # Warning / Error messages
     "e000000": "general error",
@@ -304,7 +304,7 @@ def purge_old_backups():
 
 
 def start():
-    """  Setup the correct state for the execution of the restore
+    """  Setup the correct state for the execution of the backup
 
     Args:
     Returns:
@@ -366,7 +366,6 @@ def main_code():
     lib.backup_status_update(backup_file, status)
 
     if status == lib.BACKUP_STATUS_SUCCESSFUL:
-        _logger.info(_MESSAGES_LIST["i000002"])
         _exit_value = 0
 
     else:
@@ -380,6 +379,7 @@ if __name__ == "__main__":
 
     try:
         _logger = logger.setup(_MODULE_NAME)
+        _logger.info(_MESSAGES_LIST["i000001"])
 
         # Set the logger for the library
         lib._logger = _logger
@@ -403,10 +403,13 @@ if __name__ == "__main__":
 
                 stop()
 
+            _logger.info(_MESSAGES_LIST["i000002"])
             sys.exit(exit_value)
 
         except Exception as ex:
             message = _MESSAGES_LIST["e000006"].format(ex)
-
             _logger.exception(message)
+
+            stop()
+            _logger.info(_MESSAGES_LIST["i000002"])
             sys.exit(1)

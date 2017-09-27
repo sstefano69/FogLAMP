@@ -945,10 +945,10 @@ CREATE TABLE foglamp.backups (
     ts         timestamp(6) with time zone NOT NULL DEFAULT now(),                                              -- Backup creation timestamp
     type       integer           	       NOT NULL,                                                            -- Backup type 0=full, 1=incremental
     status     integer           	       NOT NULL,                                                            -- Backup exit status
-                                                                                                                --     0=Successful backup execution
+                                                                                                                --     0=Backup successfully executed
                                                                                                                 --    -1=Running backup
                                                                                                                 --    -2=Restored backup
-    CONSTRAINT backup_pkey PRIMARY KEY (file_name)
+    CONSTRAINT backups_pkey PRIMARY KEY (file_name)
         USING INDEX TABLESPACE foglamp
     )
     WITH ( OIDS = FALSE )
@@ -956,6 +956,6 @@ CREATE TABLE foglamp.backups (
 
 
 COMMENT ON TABLE foglamp.backups IS
-'Store information about executed backups.';
+'Stores information about executed backups.';
 
 ALTER TABLE foglamp.backups OWNER to foglamp;
