@@ -6,15 +6,16 @@
 
 """Core server module"""
 
-import signal
 import asyncio
+import signal
+
 from aiohttp import web
 
 from foglamp import logger
-from foglamp.core import routes
 from foglamp.core import middleware
+from foglamp.core import routes
 from foglamp.core.scheduler import Scheduler
-from foglamp.core.registrar import Registrar
+from foglamp.core.service_registry.monitor import Monitor
 
 __author__ = "Praveen Garg, Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -29,8 +30,8 @@ class Server:
     """Class attributes"""
     scheduler = None
     """ foglamp.core.Scheduler """
-    registrar = None
-    """ foglamp.core.Registrar """
+    service_monitor = None
+    """ foglamp.core.service_registry.Monitor """
 
     @staticmethod
     def _make_app():
@@ -49,10 +50,10 @@ class Server:
         await cls.scheduler.start()
 
     @classmethod
-    async def _start_registrar(cls):
-        """Starts the microservice registrar"""
-        cls.registrar = Registrar()
-        await cls.registrar.start()
+    async def _start_service_monitor(cls):
+        """Starts the microservice monitor"""
+        cls.service_monitor = Monitor()
+        await cls.service_monitor.start()
 
     @classmethod
     def start(cls):
@@ -70,8 +71,8 @@ class Server:
         # The scheduler must start first because the REST API interacts with it
         loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
 
-        # The registrar must start first because the REST API interacts with it
-        loop.run_until_complete(asyncio.ensure_future(cls._start_registrar()))
+        # Start the service monitor
+        # loop.run_until_complete(asyncio.ensure_future(cls._start_service_monitor()))
 
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
         web.run_app(cls._make_app(), host='0.0.0.0', port=8082, handle_signals=False)
