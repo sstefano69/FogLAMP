@@ -72,7 +72,7 @@ class Server:
         loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
 
         # Start the service monitor
-        # loop.run_until_complete(asyncio.ensure_future(cls._start_service_monitor()))
+        loop.run_until_complete(asyncio.ensure_future(cls._start_service_monitor()))
 
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
         web.run_app(cls._make_app(), host='0.0.0.0', port=8082, handle_signals=False)

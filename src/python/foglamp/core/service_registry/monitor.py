@@ -61,7 +61,6 @@ class Monitor(object):
     async def _monitor_loop(self):
         """Main loop for the scheduler"""
         # check health of all microservices every N seconds
-
         while True:
             for service in Service.Instances.all():
                 url = "{}://{}:{}/foglamp/service/ping".format(service._protocol, service._address, service._port)

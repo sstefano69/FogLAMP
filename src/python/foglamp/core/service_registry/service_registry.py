@@ -133,7 +133,8 @@ async def get_service(request):
             "type": service._type,
             "address": service._address,
             "port": service._port,
-            "protocol": service._protocol
+            "protocol": service._protocol,
+            "status": service._status
         })
     return web.json_response({"services": services})
 
