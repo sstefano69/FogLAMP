@@ -20,17 +20,18 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 _CONNECTION_STRING = "dbname='foglamp'"
+
+_CMD = "psql < %s > /dev/null 2>&1" % str(os.popen(
+    "locate foglamp_ddl.sql | grep 'FogLAMP/src/sql'").read()).strip()
+
 pytestmark = pytest.mark.asyncio
 
 async def delete_from_configuration():
     """Remove initial data from configuration table"""
-    delete_from_table_stmt = _configuration_tbl.delete()
-    try:
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                await conn.execute(delete_from_table_stmt)
-    except Exception:
-        raise
+    async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
+        async with engine.acquire() as conn:
+            await conn.execute(_configuration_tbl.delete())
+
 
 
 @pytest.allure.feature("unit")
@@ -45,28 +46,30 @@ class TestConfigurationManager:
         """reset foglamp data in database, with the exception of
         configuration (which should be empty), and clear data (if
         exists) in _registered_interests object"""
-        os.system("psql < `locate foglamp_ddl.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
-        os.system("psql < `locate foglamp_init_data.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
-        event_loop = asyncio.get_event_loop()
-        event_loop.run_until_complete(delete_from_configuration())
+
+        os.system(_CMD)
+        asyncio.get_event_loop().run_until_complete(delete_from_configuration())
         _registered_interests.clear()
 
     def teardown_method(self):
         """reset foglamp data in database, and clear data (if exists)
         in _registered_interests object"""
-        os.system("psql < `locate foglamp_ddl.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
-        os.system("psql < `locate foglamp_init_data.sql | grep 'FogLAMP/src/sql'` > /dev/null 2>&1")
+        os.system(_CMD)
         _registered_interests.clear()
 
-    async def test_create_category_data_types(self):
+    async def test_accepted_data_types(self):
         """
-        Test that the accepted data types succeed
+        Test that the accepted data types get inserted by using:
+            - create_category
+            - get_all_category_names (category_name and category_description)
+            - get_category_all_items (category_value by category_name)
         :Assert:
-            1. All data was inserted into configuration
-            2. Each column in configuration table contains valid row information for
-            each category
+            1. Assert that the number of values returned by get_all_category_names
+                equals len(data)
+            2. category_description returned with get_all_category_names correlates to the
+                correct ke
+            3. get_category_all_items returns valid category_values for a given key
         """
-        select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
         data = {
             'boolean': {'category_description': 'boolean type',
                         'category_value': {
@@ -122,25 +125,24 @@ class TestConfigurationManager:
                                   category_description=data[category_name]['category_description'],
                                   category_value=data[category_name]['category_value'])
 
+        select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
         async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
             async with engine.acquire() as conn:
                 async for count in conn.execute(select_count_stmt):
-                    assert count[0] == len(list(data.keys()))
+                    assert int(count[0]) == len(data)
 
-        select_all_stmt = sa.select([_configuration_tbl.c.key, _configuration_tbl.c.description,
-                                     _configuration_tbl.c.value])
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_all_stmt):
-                    key = result[0].strip()
-                    assert data[key]['category_description'] == result[1]
-                    assert data[key]['category_value']['info']['default'] == (
-                        result[2]['info']['default'])
-                    assert data[key]['category_value']['info']['default'] == (
-                        result[2]['info']['value'])
-                    assert data[key]['category_value']['info']['type'] == result[2]['info']['type']
-                    assert data[key]['category_value']['info']['description'] == (
-                        result[2]['info']['description'])
+        categories = await get_all_category_names()
+        assert len(categories) == len(data)
+        for category in categories:
+            key = category[0].strip()
+            assert data[key]['category_description'] == category[1]
+            category_info = await get_category_all_items(category_name=key)
+            assert data[key]['category_value']['info']['description'] == (
+                category_info['info']['description'])
+            assert data[key]['category_value']['info']['type'] == (
+                category_info['info']['type'])
+            assert data[key]['category_value']['info']['default'] == (
+                category_info['info']['default'])
 
     async def test_create_category_keep_original_items_true(self):
         """
@@ -150,9 +152,6 @@ class TestConfigurationManager:
             2. values in 'data' category are as expected
             3. values in 'info' category did not change
         """
-        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
-            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
-
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={
                                   'info': {
@@ -163,25 +162,22 @@ class TestConfigurationManager:
         await create_category(category_name='boolean',
                               category_description='boolean type',
                               category_value={'data': {
-                                  'description': 'boolean type with default True',
-                                  'type': 'boolean',
-                                  'default': 'True'}},
+                                  'description': 'int type with default 0',
+                                  'type': 'integer',
+                                  'default': '0'}},
                               keep_original_items=True)
 
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_value_stmt):
-                    assert sorted(list(result[0].keys())) == ['data', 'info']
-                    # Test 'data' category
-                    assert result[0]['data']['description'] == (
-                        'boolean type with default True')
-                    assert result[0]['data']['type'] == 'boolean'
-                    assert result[0]['data']['default'] == 'True'
-                    # Test 'info' category
-                    assert result[0]['info']['description'] == (
-                        'boolean type with default False')
-                    assert result[0]['info']['type'] == 'boolean'
-                    assert result[0]['info']['default'] == 'False'
+        category_info = await get_category_all_items(category_name='boolean')
+        # Both category_values exist
+        assert sorted(list(category_info.keys())) == ['data', 'info']
+        # Verify 'info' category_value
+        assert category_info['info']['description'] == 'boolean type with default False'
+        assert category_info['info']['type'] == 'boolean'
+        assert category_info['info']['default'] == 'False'
+        # Verify 'data' category_value
+        assert category_info['data']['description'] == 'int type with default 0'
+        assert category_info['data']['type'] == 'integer'
+        assert category_info['data']['default'] == '0'
 
     async def test_create_category_keep_original_items_false(self):
         """
@@ -191,38 +187,27 @@ class TestConfigurationManager:
             2. `values` dictionary only has 'data' category
             3. values in 'data' category are as expected
         """
-        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
-            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
         await create_category(category_name='boolean', category_description='boolean type',
                               category_value={'info': {
                                   'description': 'boolean type with default False',
                                   'type': 'boolean',
                                   'default': 'False'}})
 
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_value_stmt):
-                    assert sorted(list(result[0].keys())) == ['info']
-                    assert result[0]['info']['description'] == (
-                        'boolean type with default False')
-                    assert result[0]['info']['type'] == 'boolean'
-                    assert result[0]['info']['default'] == 'False'
-
         await create_category(category_name='boolean',
                               category_description='boolean type',
                               category_value={'data': {
-                                  'description': 'boolean type with default True',
-                                  'type': 'boolean',
-                                  'default': 'True'}},
+                                  'description': 'int type with default 0',
+                                  'type': 'integer',
+                                  'default': '0'}},
                               keep_original_items=False)
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_value_stmt):
-                    assert sorted(list(result[0].keys())) == ['data']
-                    assert result[0]['data']['description'] == (
-                        'boolean type with default True')
-                    assert result[0]['data']['type'] == 'boolean'
-                    assert result[0]['data']['default'] == 'True'
+
+        category_info = await get_category_all_items(category_name='boolean')
+        # only 'data category_values exist
+        assert sorted(list(category_info.keys())) == ['data']
+        # Verify 'data' category_value
+        assert category_info['data']['description'] == 'int type with default 0'
+        assert category_info['data']['type'] == 'integer'
+        assert category_info['data']['default'] == '0'
 
     async def test_create_category_invalid_type(self):
         """
@@ -291,7 +276,7 @@ class TestConfigurationManager:
         assert ("TypeError: entry_val must be a string for item_name " +
                 "info and entry_name default") in str(error_exec)
 
-    async def test_create_category_invalid_entry_value_for_description(self):
+    async def test_create_category_invalid_entry_none_for_description(self):
         """
         Test case where value is set to the actual "value" rather than the string of the value
         :Assert:
@@ -353,6 +338,23 @@ class TestConfigurationManager:
                                           'description': 'integer type with value False'}})
         assert "ValueError: Missing entry_name default for item_name info" in str(error_exec)
 
+    async def test_create_category_invalid_entry_none_for_description(self):
+        """
+        Test case where value is set to the actual "value" rather than the string of the value
+        :Assert:
+            Assert TypeError when description is set to None rather than ''
+        """
+        with pytest.raises(TypeError) as error_exec:
+            await create_category(category_name='boolean',
+                                  category_description='boolean type',
+                                  category_value={'info': {
+                                      'description': None,
+                                      'type': 'boolean',
+                                      'default': 'False'
+                                  }})
+        assert ("TypeError: entry_val must be a string for item_name " +
+                "info and entry_name description") in str(error_exec)
+
     async def test_create_category_invalid_entry_none_for_type(self):
         """
         Test that TypeError is returned when entry_name is None
@@ -369,7 +371,7 @@ class TestConfigurationManager:
         assert ("TypeError: entry_val must be a string for item_name " +
                 "info and entry_name type") in str(error_exec)
 
-    async def test_create_category_invalid_entry_name_none_for_default(self):
+    async def test_create_category_invalid_entry_none_for_default(self):
         """
         Test that TypeError is returned when entry_name is None
         :Assert:
@@ -387,7 +389,10 @@ class TestConfigurationManager:
 
     async def test_set_category_item_value_entry(self):
         """
-        Test updating of configuration.value for a specific key
+        Test updating of configuration.value for a specific key using
+            - create_category to create the category
+            - get_category_item_value_entry to check category_value
+            - set_category_item_value_entry to update category_value
         :assert:
             1. `default` and `value` in configuration.value are the same
             2. `value` in configuration.value gets updated, while `default` does not
@@ -400,24 +405,15 @@ class TestConfigurationManager:
                                       'description': 'boolean type with default False',
                                       'type': 'boolean',
                                       'default': 'False'}})
-
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_value_stmt):
-                    assert result[0]['info']['value'] == 'False'
-                    assert result[0]['info']['default'] == 'False'
+        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
+        assert result == 'False'
 
         await set_category_item_value_entry(category_name='boolean',
                                             item_name='info', new_value_entry='True')
+        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
+        assert result == 'True'
 
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_value_stmt):
-                    assert result[0]['info']['value'] == 'True'
-                    assert result[0]['info']['default'] == 'False'
-
-    @pytest.skip
-    @pytest.xfail(reason="FOGL-552")
+    @pytest.mark.xfail(reason="FOGL-552")
     async def test_set_category_item_value_error(self):
         """
         Test updating of configuration.value when category_name does not exist
@@ -437,65 +433,7 @@ class TestConfigurationManager:
                 async for result in conn.execute(select_value_stmt):
                     assert result is None
 
-    async def test_get_all_category_names(self):
-        """
-        Test that get_call_category_names returns both the name, and category_description
-        :assert:
-            the description returned corresponds to the category_description found in the
-             `data` json object
-        """
-        data = {
-            'boolean': {'category_description': 'boolean type',
-                        'category_value': {
-                            'info': {
-                                'description': 'boolean type with default False',
-                                'type': 'boolean',
-                                'default': 'False'}}},
-            'integer': {'category_description': 'integer type',
-                        'category_value': {
-                            'info': {
-                                'description': 'integer type with default 1',
-                                'type': 'integer',
-                                'default': '1'}}},
-            'string': {'category_description': 'string type',
-                       'category_value': {
-                           'info': {
-                               'description': "string type with default 'ABCabc'",
-                               'type': 'string',
-                               'default': 'ABCabc'}}}
-        }
-
-        for category_name in data:
-            await create_category(category_name=category_name,
-                                  category_description=data[category_name]['category_description'],
-                                  category_value=data[category_name]['category_value'])
-
-        all_category_name = await get_all_category_names()
-        for val in all_category_name:
-            assert data[val[0].replace(" ", "")]['category_description'] == val[1]
-
-    async def test_get_set_category_item_value_entry(self):
-        """
-        Test that get_category_item_value_entry works properly
-        :Assert:
-            1. category_value.value gets returned and matches default
-            2. When updating value, the data retrieved for value gets updated
-        """
-        await create_category(category_name='boolean', category_description='boolean type',
-                              category_value={'info': {
-                                  'description': 'boolean type with default False',
-                                  'type': 'boolean',
-                                  'default': 'False'}})
-        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
-        assert result == 'False'
-
-        await set_category_item_value_entry(category_name='boolean',
-                                            item_name='info', new_value_entry='True')
-        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
-        assert result == 'True'
-
-    @pytest.skip
-    @pytest.xfail(reason="FOGL-577")
+    @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_item_value_entry_dne(self):
         """
         Test that None gets returned when either category_name and/or item_name don't exist
@@ -538,14 +476,7 @@ class TestConfigurationManager:
         assert result['default'] == 'False'
         assert result['value'] == 'False'
 
-        await set_category_item_value_entry(category_name='boolean',
-                                            item_name='info', new_value_entry='True')
-        result = await get_category_item(category_name='boolean', item_name='info')
-        assert result['default'] == 'False'
-        assert result['value'] == 'True'
-
-    @pytest.skip
-    @pytest.xfail(reason="FOGL-577")
+    @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_item_empty(self):
         """
         Test that gt_category_item when either category_name or item_name do not exist
@@ -565,35 +496,7 @@ class TestConfigurationManager:
         result = await get_category_item(category_name='boolean', item_name='data')
         assert result is None
 
-    async def test_get_category_all_items(self):
-        """
-        Test get_category_all_items method returns full "dictionary" of category_value
-        :assert:
-            1.  Values in dictionary are as expected
-            2. default doesn't get updated when value does
-        """
-        await create_category(category_name='boolean', category_description='boolean type',
-                              category_value={
-                                  'info': {
-                                      'description': 'boolean type with default False',
-                                      'type': 'boolean',
-                                      'default': 'False'}
-                              })
-
-        result = await get_category_all_items(category_name='boolean')
-        assert result['info']['description'] == 'boolean type with default False'
-        assert result['info']['type'] == 'boolean'
-        assert result['info']['default'] == 'False'
-        assert result['info']['value'] == 'False'
-
-        await  set_category_item_value_entry(category_name='boolean', item_name='info',
-                                             new_value_entry='True')
-        result = await get_category_all_items(category_name='boolean')
-        assert result['info']['default'] == 'False'
-        assert result['info']['value'] == 'True'
-
-    @pytest.skip
-    @pytest.xfail(reason="FOGL-577")
+    @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_all_items_dne(self):
         """
         Test get_category_all_items doesn't return anything if category_name doesn't exist
