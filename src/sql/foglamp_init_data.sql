@@ -121,6 +121,10 @@ insert into foglamp.scheduled_processes (name, script) values ('stats collector'
 insert into foglamp.scheduled_processes (name, script) values ('sending process', '["python3", "-m", "foglamp.sending_process", "-s", "1", "-d", "1"]');
 -- FogLAMP statistics into PI
 insert into foglamp.scheduled_processes (name, script) values ('statistics to pi','["python3", "-m", "foglamp.sending_process", "-s", "2", "-d", "1"]');
+-- Backup process
+insert into foglamp.scheduled_processes (name, script) values ('backup','["python3", "-m", "foglamp.backup_restore.backup"]');
+-- # FIXME: Restore process - temporary command
+insert into foglamp.scheduled_processes (name, script) values ('restore','["bash", "/home/foglamp/Development/FogLAMP/src/python/foglamp/backup_restore/restore.sh"]');
 
 -- Start the device server at start-up
 insert into foglamp.schedules(id, schedule_name, process_name, schedule_type,
@@ -159,11 +163,3 @@ INSERT INTO foglamp.streams(id,destination_id,description, last_object,ts) VALUE
 -- FogLAMP statistics into PI configuration
 INSERT INTO foglamp.streams (id,destination_id,description, last_object,ts ) VALUES (2,1,'FogLAMP statistics into PI', 0,now());
 
--- Scheduled backup
--- insert into foglamp.scheduled_processes (name, script) values ('backup','["python3", "-m", "foglamp.backup_restore.backup"]');
-
--- Run Backup every 60 seconds
--- insert into foglamp.schedules(id, schedule_name, process_name, schedule_type,
--- schedule_time, schedule_interval, exclusive)
--- values ('d1631422-9ec6-11e7-abc4-cec278b6b50a', 'backup', 'backup', 3,
--- NULL, '00:00:60', true);

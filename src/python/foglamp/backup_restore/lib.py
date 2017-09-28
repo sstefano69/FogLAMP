@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2017
 
-"""  backup
-
+""" Library used for backup and restore operations
 """
 
 import subprocess
@@ -14,7 +13,6 @@ from psycopg2.extras import RealDictCursor
 import os
 
 from foglamp import logger
-
 
 _MESSAGES_LIST = {
 
@@ -29,26 +27,24 @@ _MESSAGES_LIST = {
 }
 """ Messages used for Information, Warning and Error notice """
 
-
 # FIXME: it will be removed using the DB layer
 _DB_CONNECTION_STRING = "user='foglamp' dbname='foglamp'"
 
 _CMD_TIMEOUT = " timeout --signal=9  "
 
-BACKUP_STATUS_SUCCESSFUL = 0
-BACKUP_STATUS_RUNNING = -1
-BACKUP_STATUS_RESTORED = -2
+_BACKUP_STATUS_SUCCESSFUL = 0
+_BACKUP_STATUS_RUNNING = -1
+_BACKUP_STATUS_RESTORED = -2
 
 # FIXME:
 # JOB_SEM_FILE_PATH = "/home/foglamp/Development/FogLAMP/src/python/foglamp/backup_restore"
-JOB_SEM_FILE_PATH = "/tmp"
-JOB_SEM_FILE_BACKUP = "backup.sem"
-JOB_SEM_FILE_RESTORE = "restore.sem"
+_JOB_SEM_FILE_PATH = "/tmp"
+_JOB_SEM_FILE_BACKUP = "backup.sem"
+_JOB_SEM_FILE_RESTORE = "restore.sem"
 
 _logger = ""
 
 
-# noinspection PyProtectedMember
 def storage_update(sql_cmd):
     """  Executes a sql command against the Storage layer that updates data
 
@@ -59,8 +55,9 @@ def storage_update(sql_cmd):
     Todo:
     """
 
-    _logger.debug("{func} - sql cmd |{cmd}| ".format(func=sys._getframe().f_code.co_name,
-                                                     cmd=sql_cmd))
+    _logger.debug("{func} - sql cmd |{cmd}| ".format(
+                                                    func=sys._getframe().f_code.co_name,
+                                                    cmd=sql_cmd))
 
     _pg_conn = psycopg2.connect(_DB_CONNECTION_STRING)
     _pg_cur = _pg_conn.cursor()
@@ -70,7 +67,6 @@ def storage_update(sql_cmd):
     _pg_conn.close()
 
 
-# noinspection PyProtectedMember
 def storage_retrieve(sql_cmd):
     """  Executes a sql command against the Storage layer that retrieves data
 
@@ -94,32 +90,31 @@ def storage_retrieve(sql_cmd):
     return raw_data
 
 
-# noinspection PyProtectedMember
-def exec_wait(_cmd, output_capture=False, timeout=0):
+def exec_wait(_cmd, _output_capture=False, _timeout=0):
     """  Executes an external/shell commands
 
     Args:
         _cmd: command to execute
-        output_capture: if the output of the command should be captured or not
-        timeout: 0 no timeout or the timeout in seconds for the execution of the command
+        _output_capture: if the output of the command should be captured or not
+        _timeout: 0 no timeout or the timeout in seconds for the execution of the command
 
     Returns:
-        status: exit status of the command
-        output: output of the command
+        _status: exit status of the command
+        _output: output of the command
     Raises:
     Todo:
     """
 
     _output = ""
 
-    if timeout != 0:
-        _cmd = _CMD_TIMEOUT + str(timeout) + " " + _cmd
-        _logger.debug("Executing command using the timeout |{timeout}| ".format(timeout=timeout))
+    if _timeout != 0:
+        _cmd = _CMD_TIMEOUT + str(_timeout) + " " + _cmd
+        _logger.debug("Executing command using the timeout |{timeout}| ".format(timeout=_timeout))
 
     _logger.debug("{func} - cmd |{cmd}| ".format(func=sys._getframe().f_code.co_name,
                                                  cmd=_cmd))
 
-    if output_capture:
+    if _output_capture:
         process = subprocess.Popen(_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     else:
@@ -127,31 +122,30 @@ def exec_wait(_cmd, output_capture=False, timeout=0):
 
     _status = process.wait()
 
-    if output_capture:
-        _output = process.stdout.read()
+    if _output_capture:
+        output_tmp = process.stdout.read()
 
-    new_output = _output.decode("utf-8")
-    new_output2 = new_output.replace("\n", "\n\r")
+        output_tmp2 = output_tmp.decode("utf-8")
+        _output = output_tmp2.replace("\n", "\n\r")
 
-    return _status, new_output2
+    return _status, _output
 
 
-# noinspection PyProtectedMember
 def exec_wait_retry(cmd, output_capture=False, status_ok=0, max_retry=3,  write_error=True, sleep_time=1, timeout=0):
     """ Executes an external command retrying x time the operation up to the exit status match a specific value
 
     Args:
         cmd: command to execute
-        output_capture: if the output of the command should be captured or not
+        output_capture: if the _output of the command should be captured or not
         status_ok: exit status to achieve
         max_retry: maximum number of retries to achieve the desired exit status
-        write_error: if a message should be generate for each retry
+        write_error: if a message should be generated for each retry
         sleep_time: seconds to sleep between each retry
-        timeout: 0 no timeout or the timeout in seconds for the execution of the command
+        timeout: 0= no timeout, or the timeout in seconds for the execution of the external command
 
     Returns:
-        status: exit status of the command
-        output: output of the command
+        _status: exit status of the command
+        _output: output of the command
 
     Raises:
     Todo:
@@ -163,15 +157,15 @@ def exec_wait_retry(cmd, output_capture=False, status_ok=0, max_retry=3,  write_
                                                  cmd=cmd))
 
     _status = 0
-    output = ""
+    _output = ""
 
-    # exec N times the copy operation
+    # try X times the operation
     retry = 1
     loop_continue = True
 
     while loop_continue:
 
-        _status, output = exec_wait(cmd, output_capture, timeout)
+        _status, _output = exec_wait(cmd, output_capture, timeout)
 
         if _status == status_ok:
             loop_continue = False
@@ -179,7 +173,7 @@ def exec_wait_retry(cmd, output_capture=False, status_ok=0, max_retry=3,  write_
         elif retry <= max_retry:
 
             if write_error:
-                short_output = output[0:50]
+                short_output = _output[0:50]
                 _logger.debug("{func} - cmd |{cmd}| - N retry |{retry}| - message |{msg}| ".format(
                     func=sys._getframe().f_code.co_name,
                     cmd=cmd,
@@ -193,16 +187,15 @@ def exec_wait_retry(cmd, output_capture=False, status_ok=0, max_retry=3,  write_
         else:
             loop_continue = False
 
-    return _status, output
+    return _status, _output
 
 
-# noinspection PyProtectedMember
 def backup_status_create(file_name, status):
     """ Logs the creation of the backup in the Storage layer
 
     Args:
-        file_name: file_name, as a full path, used as if of the backup
-        status: BACKUP_STATUS_RUNNING
+        file_name: file_name, as a full path, used for the backup
+        status: backup status, BACKUP_STATUS_RUNNING
     Returns:
     Raises:
     Todo:
@@ -220,12 +213,11 @@ def backup_status_create(file_name, status):
     storage_update(sql_cmd)
 
 
-# noinspection PyProtectedMember
 def backup_status_update(file_name, status):
-    """ Update the status of the backup in the Storage layer
+    """ Updates the status of the backup in the Storage layer
 
     Args:
-        file_name: file_name, as a full path, used as if of the backup
+        file_name: file_name, as a full path, used for the backup
         status: {exit status of the backup|BACKUP_STATUS_RESTORED|}
     Returns:
     Raises:
@@ -245,15 +237,16 @@ def backup_status_update(file_name, status):
 
 
 class Job:
-    """" Handles backup and restore processes synchronization """
+    """" Handles backup and restore operations synchronization """
 
     @classmethod
     def _pid_file_retrieve(cls, file_name):
-        """ Retrieve the PID from  the semaphore file
+        """ Retrieves the PID from the semaphore file
 
         Args:
+            file_name: semaphore file, full path
         Returns:
-            pid: 0= another process is in execution or the pid retrieved from the semaphore file
+            pid: pid retrieved from the semaphore file
         Raises:
         Todo:
         """
@@ -270,8 +263,8 @@ class Job:
         """ Creates the semaphore file having the PID as content
 
         Args:
-            file_name:
-            pid: stored into the file
+            file_name: semaphore file, full path
+            pid: pid to store into the semaphore file
         Returns:
         Raises:
         Todo:
@@ -283,11 +276,12 @@ class Job:
 
     @classmethod
     def check_semaphore_file(cls, file_name):
-        """ Evaluates if another either backup or restore job is already running
+        """ Evaluates if a specific either backup or restore operation is in execution
 
         Args:
+            file_name: semaphore file, full path
         Returns:
-            pid: 0= another process is in execution or the pid retrieved from the semaphore file
+            pid: 0= no operation is in execution or the pid retrieved from the semaphore file
         Raises:
         Todo:
         """
@@ -318,7 +312,7 @@ class Job:
 
         Args:
         Returns:
-            pid: 0= another process is in execution or the pid retrieved from the semaphore file
+            pid: 0= no operation is in execution or the pid retrieved from the semaphore file
         Raises:
         Todo:
         """
@@ -326,23 +320,23 @@ class Job:
         _logger.debug("{0}".format(sys._getframe().f_code.co_name))
 
         # Checks if a backup process is still running
-        full_path_backup = JOB_SEM_FILE_PATH + "/" + JOB_SEM_FILE_BACKUP
+        full_path_backup = _JOB_SEM_FILE_PATH + "/" + _JOB_SEM_FILE_BACKUP
         pid = cls.check_semaphore_file(full_path_backup)
 
         # Checks if a restore process is still running
         if pid == 0:
-            full_path_restore = JOB_SEM_FILE_PATH + "/" + JOB_SEM_FILE_RESTORE
+            full_path_restore = _JOB_SEM_FILE_PATH + "/" + _JOB_SEM_FILE_RESTORE
             pid = cls.check_semaphore_file(full_path_restore)
 
         return pid
 
     @classmethod
     def set_as_running(cls, file_name, pid):
-        """ Set a job as running
+        """ Sets a job as running
 
         Args:
             file_name: semaphore file either fot backup or restore
-            pid: pid of the process stored within the semaphore
+            pid: pid of the process stored within the semaphore file
         Returns:
         Raises:
         Todo:
@@ -350,7 +344,7 @@ class Job:
 
         _logger.debug("{0}".format(sys._getframe().f_code.co_name))
 
-        full_path = JOB_SEM_FILE_PATH + "/" + file_name
+        full_path = _JOB_SEM_FILE_PATH + "/" + file_name
 
         if os.path.exists(full_path):
 
@@ -363,11 +357,10 @@ class Job:
 
     @classmethod
     def set_as_completed(cls, file_name):
-        """ Set a job as completed
+        """ Sets a job as completed
 
         Args:
-            file_name: semaphore file either fot backup or restore
-
+            file_name: semaphore file either for backup or restore operations
         Returns:
         Raises:
         Todo:
@@ -375,7 +368,7 @@ class Job:
 
         _logger.debug("{0}".format(sys._getframe().f_code.co_name))
 
-        full_path = JOB_SEM_FILE_PATH + "/" + file_name
+        full_path = _JOB_SEM_FILE_PATH + "/" + file_name
 
         if os.path.exists(full_path):
             os.remove(full_path)

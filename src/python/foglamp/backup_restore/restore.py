@@ -4,8 +4,8 @@
 
 """ Restores the entire FogLAMP repository from a previous backup.
 
-It executes a full cold restore, FogLAMP will be stopped before the start of
-the restore and restarted at the end.
+It executes a full cold restore,
+FogLAMP will be stopped before the start of the restore and restarted at the end.
 
 The option -f is available to restore a specific file,
 the full path should be provided like for example : -f /tmp/foglamp_2017_09_25_15_10_22.dump
@@ -26,8 +26,8 @@ import os
 import signal
 
 from foglamp import logger, configuration_manager
-import foglamp.backup_restore.lib as lib
 
+import foglamp.backup_restore.lib as lib
 
 _MODULE_NAME = "foglamp_restore"
 
@@ -43,12 +43,11 @@ _MESSAGES_LIST = {
     "e000002": "cannot retrieve the configuration from the manager, trying retrieving from file - error details |{0}|",
     "e000003": "cannot retrieve the configuration from file - error details |{0}|",
     "e000004": "cannot restore the backup, file doesn't exists - file name |{0}|",
-    "e000005": "an error was raised during the restore operation - error details |{0}|",
+    "e000005": "an error occurred during the restore operation - error details |{0}|",
     "e000006": "cannot start FogLAMP after the restore - error details |{0}|",
     "e000007": "cannot restore the backup, restarting FogLAMP - error details |{0}|",
     "e000008": "cannot identify FogLAMP status, the maximum number of retries has been reached - error details |{0}|",
     "e000009": "cannot restore the backup, either a backup or a restore is already running - pid |{0}|",
-
     "e000010": "cannot start the logger - error details |{0}|",
 }
 """ Messages used for Information, Warning and Error notice """
@@ -57,40 +56,44 @@ _CONFIG_FILE = "configuration.ini"
 
 # Configuration retrieved from the Configuration Manager
 _CONFIG_CATEGORY_NAME = 'BACK_REST'
-_CONFIG_CATEGORY_DESCRIPTION = 'Configuration of backups and restore'
+_CONFIG_CATEGORY_DESCRIPTION = 'Configuration for backup and restore operations'
 
 _CONFIG_DEFAULT = {
     "host": {
-        "description": "Host server to backup.",
+        "description": "Host server for backup and restore operations.",
         "type": "string",
         "default": "localhost"
     },
     "port": {
-        "description": "PostgreSQL port.",
+        "description": "PostgreSQL port for backup and restore operations.",
         "type": "integer",
         "default": "5432"
     },
     "database": {
-        "description": "Database to backup.",
+        "description": "Database to manage for backup and restore operations.",
         "type": "string",
         "default": "foglamp"
     },
     "backup_dir": {
-        "description": "Directory where the backup will be created.",
+        "description": "Directory where the backups will be created.",
         "type": "string",
         "default": "/tmp"
     },
     "retention": {
-        "description": "Number of backups to maintain, the old ones will be deleted.",
+        "description": "Number of backups to maintain, old ones will be deleted.",
+        "type": "integer",
+        "default": "5"
+    },
+    "max_retry": {
+        "description": "Number of retries for FogLAMP stop/start operations.",
         "type": "integer",
         "default": "5"
     },
     "timeout": {
-        "description": "timeout in seconds for the execution of the commands.",
+        "description": "Timeout in seconds for the execution of the external commands.",
         "type": "integer",
         "default": "1200"
     },
-
 }
 
 _config_from_manager = {}
@@ -100,17 +103,12 @@ _logger = ""
 
 _event_loop = ""
 
-# FIXME:
-# _base_cmd = "python3 -m foglamp {0}"
+_base_cmd = "python3 -m foglamp {0}"
+""" Command for managing FogLAMP, stop/start/status """
 
-_base_cmd = "bash -c '"
-_base_cmd += "source /home/foglamp/Development/FogLAMP/src/python/venv/foglamp/bin/activate;\\"
-_base_cmd += "python3 -m foglamp {0}"
-_base_cmd += "'"
-
-STATUS_NOT_DEFINED = 0
-STATUS_STOPPED = 1
-STATUS_RUNNING = 2
+_STATUS_NOT_DEFINED = 0
+_STATUS_STOPPED = 1
+_STATUS_RUNNING = 2
 
 
 class ConfigRetrievalError(RuntimeError):
@@ -148,9 +146,8 @@ class FogLAMPStopError(RuntimeError):
     pass
 
 
-# noinspection PyProtectedMember
 def foglamp_stop():
-    """ Stops FogLAMP for the execution of the backup, doing a cold backup
+    """ Stops FogLAMP before for the execution of the backup, doing a cold backup
 
     Args:
     Returns:
@@ -164,7 +161,7 @@ def foglamp_stop():
     cmd = _base_cmd.format("stop")
 
     # Restore the backup
-    status, output = lib.exec_wait_retry(cmd, True, timeout=_config['timeout'])
+    status, output = lib.exec_wait_retry(cmd, True, max_retry=_config['max_retry'], timeout=_config['timeout'])
 
     _logger.debug("{func} - status |{status}| - cmd |{cmd}| - output |{output}|   ".format(
                 func=sys._getframe().f_code.co_name,
@@ -173,13 +170,12 @@ def foglamp_stop():
                 output=output))
 
     if status == 0:
-        if foglamp_status() != STATUS_STOPPED:
+        if foglamp_status() != _STATUS_STOPPED:
             raise FogLAMPStopError(output)
     else:
         raise FogLAMPStopError(output)
 
 
-# noinspection PyProtectedMember
 def foglamp_start():
     """ Starts FogLAMP after the execution of the restore
 
@@ -192,23 +188,22 @@ def foglamp_start():
 
     cmd = _base_cmd.format("start")
 
-    status, output = lib.exec_wait_retry(cmd, True, timeout=_config['timeout'])
+    status, output = lib.exec_wait_retry(cmd, True, max_retry=_config['max_retry'],  timeout=_config['timeout'])
 
     _logger.debug("FogLAMP {0} - output |{1}| -  status |{2}|  ".format(sys._getframe().f_code.co_name,
                                                                         output,
                                                                         status))
 
     if status == 0:
-        if foglamp_status() != STATUS_RUNNING:
+        if foglamp_status() != _STATUS_RUNNING:
             raise FogLAMPStartError
 
     else:
         raise FogLAMPStartError
 
 
-# noinspection PyProtectedMember
 def foglamp_status():
-    """ Check the status of FogLAMP
+    """ Checks FogLAMP status
 
     Args:
     Returns:
@@ -218,7 +213,7 @@ def foglamp_status():
     Todo:
     """
 
-    status = STATUS_NOT_DEFINED
+    status = _STATUS_NOT_DEFINED
 
     num_exec = 1
     max_exec = 20
@@ -233,7 +228,7 @@ def foglamp_status():
         try:
             cmd = _base_cmd.format("status")
 
-            cmd_status, output = lib.exec_wait(cmd, True, timeout=_config['timeout'])
+            cmd_status, output = lib.exec_wait(cmd, True, _timeout=_config['timeout'])
 
             _logger.debug("{0} - output |{1}| \r - status |{2}|  ".format(sys._getframe().f_code.co_name,
                                                                           output,
@@ -242,10 +237,10 @@ def foglamp_status():
             num_exec += 1
 
             if cmd_status == 0:
-                new_status = STATUS_RUNNING
+                new_status = _STATUS_RUNNING
 
             elif cmd_status == 2:
-                new_status = STATUS_STOPPED
+                new_status = _STATUS_STOPPED
 
         except Exception as e:
             _message = e
@@ -265,16 +260,16 @@ def foglamp_status():
         _message = _MESSAGES_LIST["e000008"]
 
         _logger.error(_message)
-        status = STATUS_NOT_DEFINED
+        status = _STATUS_NOT_DEFINED
 
     return status
 
 
-# noinspection PyProtectedMember
 def exec_restore(backup_file):
     """ Executes the restore of the storage layer from a backup
 
     Args:
+        backup_file: backup file to restore
     Returns:
     Raises:
         RestoreError
@@ -299,6 +294,8 @@ def exec_restore(backup_file):
 
     # Restore the backup
     status, output = lib.exec_wait_retry(cmd, True, timeout=_config['timeout'])
+
+    # Avoid output too long
     output_short = output.splitlines()[10]
 
     _logger.debug("{func} - Restore end - status |{status}| - cmd |{cmd}| - output |{output}|".format(
@@ -311,8 +308,6 @@ def exec_restore(backup_file):
         raise RestoreError
 
 
-# noinspection PyProtectedMember
-# noinspection PyUnresolvedReferences
 def identify_last_backup():
     """ Identifies latest executed backup either successfully executed or already restored
 
@@ -320,7 +315,7 @@ def identify_last_backup():
     Returns:
     Raises:
         NoBackupAvailableError: No backup either successfully executed or already restored available
-        FileNameError: it is possible to identify an unique backup to restore
+        FileNameError: it is impossible to identify an unique backup to restore
     Todo:
     """
 
@@ -344,11 +339,12 @@ def identify_last_backup():
     return _file_name
 
 
-# noinspection PyProtectedMember
-def update_backup_status(_file_name, exit_status):
-    """ Update the status of the backup in the storage layer as restored
+def update_backup_status(_file_name, _exit_status):
+    """ Updates the status of the backup in the storage layer
 
     Args:
+        _file_name: backup to update
+        _exit_status: backup exit status, stored as provided
     Returns:
     Raises:
     Todo:
@@ -360,7 +356,7 @@ def update_backup_status(_file_name, exit_status):
 
         UPDATE foglamp.backups SET  status={status} WHERE file_name='{file}';
 
-        """.format(status=exit_status,
+        """.format(status=_exit_status,
                    file=_file_name, )
 
     lib.storage_update(sql_cmd)
@@ -377,14 +373,14 @@ def handling_input_parameters():
     """
 
     parser = argparse.ArgumentParser(prog=_MODULE_NAME)
-    parser.description = '%(prog)s -- restore a fogLAMP backup '
+    parser.description = '%(prog)s -- restore a FogLAMP backup '
 
     parser.epilog = ' '
 
     parser.add_argument('-f', '--file_name',
                         required=False,
                         default=0,
-                        help='Backup file to restore.')
+                        help='Backup file to restore, a full path should be provided.')
 
     namespace = parser.parse_args(sys.argv[1:])
 
@@ -425,9 +421,9 @@ def retrieve_configuration_from_manager():
     _config['database'] = _config_from_manager['database']['value']
     _config['backup_dir'] = _config_from_manager['backup_dir']['value']
     _config['timeout'] = int(_config_from_manager['timeout']['value'])
+    _config['max_retry'] = int(_config_from_manager['max_retry']['value'])
 
 
-# noinspection PyProtectedMember
 def retrieve_configuration_from_file():
     """" Retrieves the configuration from a local file
 
@@ -449,6 +445,7 @@ def retrieve_configuration_from_file():
     _config['database'] = config_file['DEFAULT']['database']
     _config['backup_dir'] = config_file['DEFAULT']['backup_dir']
     _config['timeout'] = int(config_file['DEFAULT']['timeout'])
+    _config['max_retry'] = int(config_file['DEFAULT']['max_retry'])
 
 
 def update_configuration_file():
@@ -469,6 +466,7 @@ def update_configuration_file():
     config_file['DEFAULT']['database'] = _config['database']
     config_file['DEFAULT']['backup_dir'] = _config['backup_dir']
     config_file['DEFAULT']['timeout'] = str(_config['timeout'])
+    config_file['DEFAULT']['max_retry'] = str(_config['max_retry'])
 
     with open(_CONFIG_FILE, 'w') as file:
         config_file.write(file)
@@ -507,10 +505,11 @@ def retrieve_configuration():
 
 
 def start():
-    """  Setup the correct state for the execution of the restore
+    """ Setups the correct state for the execution of the restore
 
     Args:
     Returns:
+        proceed_execution: True= the restore could be executed
     Raises:
     Todo:
     """
@@ -519,7 +518,7 @@ def start():
 
     proceed_execution = False
 
-    # Setup signals handlers
+    # Setup signals handlers, to avoid the termination of the restore when FogLAMP will be stopped
     signal.signal(signal.SIGHUP, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
@@ -531,7 +530,7 @@ def start():
 
         # no job is running
         pid = os.getpid()
-        job.set_as_running(lib.JOB_SEM_FILE_RESTORE, pid)
+        job.set_as_running(lib._JOB_SEM_FILE_RESTORE, pid)
         proceed_execution = True
     else:
         _message = _MESSAGES_LIST["e000009"].format(pid)
@@ -541,7 +540,7 @@ def start():
 
 
 def stop():
-    """ Set the correct state to terminate the execution
+    """ Sets the correct state to terminate the execution
 
     Args:
     Returns:
@@ -551,7 +550,7 @@ def stop():
 
     _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
 
-    job.set_as_completed(lib.JOB_SEM_FILE_RESTORE)
+    job.set_as_completed(lib._JOB_SEM_FILE_RESTORE)
 
 
 def main_code():
@@ -559,9 +558,10 @@ def main_code():
 
     Args:
     Returns:
-        exit_value: value to be used for the sys.exit
+        _exit_value: 0=Restore successfully executed
 
     Raises:
+        FileNotFoundError
     Todo:
     """
 
@@ -584,7 +584,7 @@ def main_code():
     # exit 1 - restore=error, regardless of the start
     try:
         exec_restore(file_name)
-        lib.backup_status_update(file_name, lib.BACKUP_STATUS_RESTORED)
+        lib.backup_status_update(file_name, lib._BACKUP_STATUS_RESTORED)
         _exit_value = 0
 
     except Exception as _ex:
@@ -606,9 +606,8 @@ def main_code():
     return _exit_value
 
 
-# noinspection PyUnusedLocal
 def signal_handler(_signo,  _stack_frame):
-    """ Handles signals to avoid termination doing FogLAMP stop
+    """ Handles signals to avoid restore termination doing FogLAMP stop
 
     Args:
     Returns:
@@ -616,8 +615,11 @@ def signal_handler(_signo,  _stack_frame):
     Todo:
     """
 
-    _logger.debug("{func} - signal |{signo}| ".format(func=sys._getframe().f_code.co_name, signo=_signo))
-
+    short_stack_frame = _stack_frame[:20]
+    _logger.debug("{func} - signal |{signo}| - info |{ssf}| ".format(
+                                                                    func=sys._getframe().f_code.co_name,
+                                                                    signo=_signo,
+                                                                    ssf=short_stack_frame))
 
 if __name__ == "__main__":
 
@@ -625,14 +627,14 @@ if __name__ == "__main__":
         _logger = logger.setup(_MODULE_NAME)
         _logger.info(_MESSAGES_LIST["i000001"])
 
-        # Set the logger for the library
+        # Sets the logger for the library
         lib._logger = _logger
 
     except Exception as ex:
         message = _MESSAGES_LIST["e000010"].format(str(ex))
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S:")
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        print("{0} - ERROR - {1}".format(current_time, message))
+        print("[FOGLAMP] {0} - ERROR - {1}".format(current_time, message), file=sys.stderr)
         sys.exit(1)
 
     else:

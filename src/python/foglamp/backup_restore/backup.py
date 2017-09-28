@@ -22,7 +22,6 @@ from foglamp import logger, configuration_manager
 
 import foglamp.backup_restore.lib as lib
 
-
 _MODULE_NAME = "foglamp_backup"
 
 _MESSAGES_LIST = {
@@ -36,13 +35,12 @@ _MESSAGES_LIST = {
     "e000001": "Invalid file name",
     "e000002": "cannot retrieve the configuration from the manager, trying retrieving from file - error details |{0}|",
     "e000003": "cannot retrieve the configuration from file - error details |{0}|",
-    "e000004": "cannot delete/purge old backup file on file system - file name |{1}| error details |{0}|",
-    "e000005": "cannot delete/purge old backup file on the storage system - file name |{1}| error details |{0}|",
-    "e000006": "an error was raised during the backup operation - error details |{0}|",
+    "e000004": "cannot delete/purge old backup file on file system - file name |{0}| error details |{1}|",
+    "e000005": "cannot delete/purge old backup information on the storage layer - file name |{0}| error details |{1}|",
+    "e000006": "an error occurred during the backup operation - error details |{0}|",
     "e000007": "Backup failed.",
     "e000008": "cannot execute the backup, either a backup or a restore is already running - pid |{0}|",
-
-    "e000010": "cannot start the logger - error details |{0}|",
+    "e000009": "cannot start the logger - error details |{0}|",
 }
 """ Messages used for Information, Warning and Error notice """
 
@@ -50,40 +48,44 @@ _CONFIG_FILE = "configuration.ini"
 
 # Configuration retrieved from the Configuration Manager
 _CONFIG_CATEGORY_NAME = 'BACK_REST'
-_CONFIG_CATEGORY_DESCRIPTION = 'Configuration of backups and restore'
+_CONFIG_CATEGORY_DESCRIPTION = 'Configuration for backup and restore operations'
 
 _CONFIG_DEFAULT = {
     "host": {
-        "description": "Host server to backup.",
+        "description": "Host server for backup and restore operations.",
         "type": "string",
         "default": "localhost"
     },
     "port": {
-        "description": "PostgreSQL port.",
+        "description": "PostgreSQL port for backup and restore operations.",
         "type": "integer",
         "default": "5432"
     },
     "database": {
-        "description": "Database to backup.",
+        "description": "Database to manage for backup and restore operations.",
         "type": "string",
         "default": "foglamp"
     },
     "backup_dir": {
-        "description": "Directory where the backup will be created.",
+        "description": "Directory where the backups will be created.",
         "type": "string",
         "default": "/tmp"
     },
     "retention": {
-        "description": "Number of backups to maintain, the old ones will be deleted.",
+        "description": "Number of backups to maintain, old ones will be deleted.",
+        "type": "integer",
+        "default": "5"
+    },
+    "max_retry": {
+        "description": "Number of retries for FogLAMP stop/start operations.",
         "type": "integer",
         "default": "5"
     },
     "timeout": {
-        "description": "timeout in seconds for the execution of the commands.",
+        "description": "Timeout in seconds for the execution of the external commands.",
         "type": "integer",
         "default": "1200"
     },
-
 }
 
 _config_from_manager = {}
@@ -104,12 +106,13 @@ class BackupError(RuntimeError):
     pass
 
 
-# noinspection PyProtectedMember
 def exec_backup(_backup_file):
     """ Backups the entire FogLAMP repository into a file in the local file system
 
     Args:
+        _backup_file: backup file to create
     Returns:
+        _status: exit status of the operation, 0=Successful
     Raises:
     Todo:
     """
@@ -136,15 +139,16 @@ def exec_backup(_backup_file):
     return _status
 
 
-# noinspection PyProtectedMember
 def generate_file_name():
     """ Generates the file name for the backup operation, it uses hours/minutes/seconds for the file name generation
 
     Args:
     Returns:
+        _backup_file: generated file name
     Raises:
     Todo:
     """
+
     _logger.debug("{0} - ".format(sys._getframe().f_code.co_name))
 
     # Evaluates the parameters
@@ -186,7 +190,7 @@ def retrieve_configuration_from_manager():
 
 
 def retrieve_configuration_from_file():
-    """" Retrieves the configuration from a local file
+    """" Retrieves the configuration from the local file
 
     Args:
     Returns:
@@ -231,8 +235,8 @@ def update_configuration_file():
 
 def retrieve_configuration():
     """  Retrieves the configuration either from the manager or from a local file.
-    the local configuration file is used if the configuration manager is not available,
-    and updated with the values retrieved from tha manager when feasible.
+    the local configuration file is used if the configuration manager is not available
+    and updated with the values retrieved from the manager when feasible.
 
     Args:
     Returns:
@@ -260,7 +264,7 @@ def retrieve_configuration():
 
 
 def purge_old_backups():
-    """  Deletes old backup in relation at the retention parameter retrieved from the configuration manager
+    """  Deletes old backups in relation at the retention parameter
 
     Args:
     Returns:
@@ -304,13 +308,15 @@ def purge_old_backups():
 
 
 def start():
-    """  Setup the correct state for the execution of the backup
+    """  Setups the correct state for the execution of the backup
 
     Args:
     Returns:
+        proceed_execution: True= the backup operation could be executed
     Raises:
     Todo:
     """
+
     _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
 
     proceed_execution = False
@@ -322,7 +328,7 @@ def start():
 
         # no job is running
         pid = os.getpid()
-        job.set_as_running(lib.JOB_SEM_FILE_BACKUP, pid)
+        job.set_as_running(lib._JOB_SEM_FILE_BACKUP, pid)
         proceed_execution = True
 
     else:
@@ -333,7 +339,7 @@ def start():
 
 
 def stop():
-    """ Set the correct state to terminate the execution
+    """ Sets the correct state to terminate the execution
 
     Args:
     Returns:
@@ -343,7 +349,7 @@ def stop():
 
     _logger.debug("{func}".format(func=sys._getframe().f_code.co_name))
 
-    job.set_as_completed(lib.JOB_SEM_FILE_BACKUP)
+    job.set_as_completed(lib._JOB_SEM_FILE_BACKUP)
 
 
 def main_code():
@@ -351,7 +357,7 @@ def main_code():
 
     Args:
     Returns:
-        exit_value: value to be used for the sys.exit
+        _exit_value: 0=Backup successfully executed
 
     Raises:
     Todo:
@@ -361,11 +367,11 @@ def main_code():
 
     backup_file = generate_file_name()
 
-    lib.backup_status_create(backup_file, lib.BACKUP_STATUS_RUNNING)
+    lib.backup_status_create(backup_file, lib._BACKUP_STATUS_RUNNING)
     status = exec_backup(backup_file)
     lib.backup_status_update(backup_file, status)
 
-    if status == lib.BACKUP_STATUS_SUCCESSFUL:
+    if status == lib._BACKUP_STATUS_SUCCESSFUL:
         _exit_value = 0
 
     else:
@@ -381,14 +387,14 @@ if __name__ == "__main__":
         _logger = logger.setup(_MODULE_NAME)
         _logger.info(_MESSAGES_LIST["i000001"])
 
-        # Set the logger for the library
+        # Sets the logger for the library
         lib._logger = _logger
 
     except Exception as ex:
-        message = _MESSAGES_LIST["e000010"].format(str(ex))
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S:")
+        message = _MESSAGES_LIST["e000009"].format(str(ex))
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        print("{0} - ERROR - {1}".format(current_time, message))
+        print("[FOGLAMP] {0} - ERROR - {1}".format(current_time, message), file=sys.stderr)
         sys.exit(1)
 
     else:
