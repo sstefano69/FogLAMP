@@ -36,7 +36,6 @@ async def add_master_data(rows=0):
                    1 record is created with user_ts = (current time - 1 hour)
                    other records are created with user_ts = (current time - 10 hour)
     """
-    print("Inside add_master_data")
     conn = await asyncpg.connect(database=__DB_NAME)
     await conn.execute('''DELETE from foglamp.readings WHERE asset_code IN ($1)''', test_data_asset_code)
     uid_list = []
@@ -68,7 +67,6 @@ async def add_master_data(rows=0):
 
 
 async def delete_master_data():
-    print("Inside add_master_data")
     conn = await asyncpg.connect(database=__DB_NAME)
     await conn.execute('''DELETE from foglamp.readings WHERE asset_code IN ($1)''', test_data_asset_code)
     await conn.close()
@@ -81,7 +79,6 @@ test_data_ts_list = []
 
 @pytest.fixture(scope="module")
 def setup_test_data():
-    print("Inside setup_class")
     global test_data_uid_list
     global test_data_x_val_list
     global test_data_y_val_list
@@ -93,6 +90,7 @@ def setup_test_data():
 @pytest.fixture(scope="module", autouse=True)
 def setup(setup_test_data, start_foglamp):
     pass
+
 
 @pytest.allure.feature("api")
 @pytest.allure.story("assets-browser")
