@@ -26,14 +26,6 @@ _CMD = "psql < %s > /dev/null 2>&1" % str(os.popen(
 
 pytestmark = pytest.mark.asyncio
 
-async def delete_from_configuration():
-    """Remove initial data from configuration table"""
-    async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-        async with engine.acquire() as conn:
-            await conn.execute(_configuration_tbl.delete())
-
-
-
 @pytest.allure.feature("unit")
 @pytest.allure.story("configuration manager")
 class TestConfigurationManager:
@@ -48,7 +40,7 @@ class TestConfigurationManager:
         exists) in _registered_interests object"""
 
         os.system(_CMD)
-        asyncio.get_event_loop().run_until_complete(delete_from_configuration())
+        # asyncio.get_event_loop().run_until_complete(delete_from_configuration())
         _registered_interests.clear()
 
     def teardown_method(self):
@@ -123,7 +115,8 @@ class TestConfigurationManager:
         for category_name in data:
             await create_category(category_name=category_name,
                                   category_description=data[category_name]['category_description'],
-                                  category_value=data[category_name]['category_value'])
+                                  category_value=data[category_name]['category_value'],
+                                  keep_original_items=True)
 
         select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
         async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
@@ -157,7 +150,8 @@ class TestConfigurationManager:
                                   'info': {
                                       'description': 'boolean type with default False',
                                       'type': 'boolean',
-                                      'default': 'False'}})
+                                      'default': 'False'}},
+                              keep_original_items=False)
 
         await create_category(category_name='boolean',
                               category_description='boolean type',
@@ -208,6 +202,88 @@ class TestConfigurationManager:
         assert category_info['data']['description'] == 'int type with default 0'
         assert category_info['data']['type'] == 'integer'
         assert category_info['data']['default'] == '0'
+
+    async def test_set_category_item_value_entry(self):
+        """
+        Test updating of configuration.value for a specific key using
+            - create_category to create the category
+            - get_category_item_value_entry to check category_value
+            - set_category_item_value_entry to update category_value
+        :assert:
+            1. `default` and `value` in configuration.value are the same
+            2. `value` in configuration.value gets updated, while `default` does not
+        """
+        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
+            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
+        await create_category(category_name='boolean', category_description='boolean type',
+                              category_value={
+                                  'info': {
+                                      'description': 'boolean type with default False',
+                                      'type': 'boolean',
+                                      'default': 'False'}})
+        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
+        assert result == 'False'
+
+        await set_category_item_value_entry(category_name='boolean',
+                                            item_name='info', new_value_entry='True')
+        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
+        assert result == 'True'
+
+    async def test_get_category_item(self):
+        """
+        Test that get_category_item returns all the data in configuration.
+        value for a specific category_name
+        :assert:
+            Information in configuration.value match the category_values declared
+
+        """
+        await create_category(category_name='boolean', category_description='boolean type',
+                              category_value={
+                                  'info': {
+                                      'description': 'boolean type with default False',
+                                      'type': 'boolean',
+                                      'default': 'False'}
+                              })
+        result = await get_category_item(category_name='boolean', item_name='info')
+        assert result['description'] == 'boolean type with default False'
+        assert result['type'] == 'boolean'
+        assert result['default'] == 'False'
+        assert result['value'] == 'False'
+
+    async def test_register_interest(self):
+        """
+        Test that when register_interest is called, _registered_interests gets updated
+        :assert:
+            1. when index of keys list is 0, corresponding name is 'boolean'
+            2. the value for _register_interests['boolean'] is {'tests.callback'}
+        """
+        register_interest(category_name='boolean', callback='tests.callback')
+        assert list(_registered_interests.keys())[0] == 'boolean'
+        assert _registered_interests['boolean'] == {'tests.callback'}
+
+    '''async def test_create_category_invalid_category_name_none(self):
+        """"""
+        with pytest.raises(TypeError) as error_exec:
+                await create_category(category_name=None, category_description='boolean type',
+                                      category_value={
+                                          'info': {
+                                              'description': 'boolean type with default False',
+                                              'type': 'boolean',
+                                              'default': 'False'}})
+      
+        print(str(error_exec)) '''' 
+
+    async def test_create_category_invalid_dict(self):
+        """
+        Test that create_category returns the expected error when category_value
+          is a 'string' rather than a JSON
+        :assert:
+            Assert that TypeError gets returned when type is string
+        """
+        with pytest.raises(TypeError) as error_exec:
+            await create_category(category_name='integer', category_description='integer type',
+                                  category_value='1')
+        assert "TypeError: category_val must be a dictionary" in str(error_exec)
 
     async def test_create_category_invalid_type(self):
         """
@@ -387,32 +463,6 @@ class TestConfigurationManager:
         assert ("TypeError: entry_val must be a string for item_name info " +
                 "and entry_name default") in str(error_exec)
 
-    async def test_set_category_item_value_entry(self):
-        """
-        Test updating of configuration.value for a specific key using
-            - create_category to create the category
-            - get_category_item_value_entry to check category_value
-            - set_category_item_value_entry to update category_value
-        :assert:
-            1. `default` and `value` in configuration.value are the same
-            2. `value` in configuration.value gets updated, while `default` does not
-        """
-        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
-            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
-        await create_category(category_name='boolean', category_description='boolean type',
-                              category_value={
-                                  'info': {
-                                      'description': 'boolean type with default False',
-                                      'type': 'boolean',
-                                      'default': 'False'}})
-        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
-        assert result == 'False'
-
-        await set_category_item_value_entry(category_name='boolean',
-                                            item_name='info', new_value_entry='True')
-        result = await get_category_item_value_entry(category_name='boolean', item_name='info')
-        assert result == 'True'
-
     @pytest.mark.xfail(reason="FOGL-552")
     async def test_set_category_item_value_error(self):
         """
@@ -454,28 +504,6 @@ class TestConfigurationManager:
         result = await get_category_item_value_entry(category_name='integer', item_name='info')
         assert result is None
 
-    async def test_get_category_item(self):
-        """
-        Test that get_category_item returns all the data in configuration.
-        value for a specific category_name
-        :assert:
-            1. Information in configuration.value match the category_values declared
-            2. When updating value, the data retrieved for default does not change,
-            while for value it it does
-        """
-        await create_category(category_name='boolean', category_description='boolean type',
-                              category_value={
-                                  'info': {
-                                      'description': 'boolean type with default False',
-                                      'type': 'boolean',
-                                      'default': 'False'}
-                              })
-        result = await get_category_item(category_name='boolean', item_name='info')
-        assert result['description'] == 'boolean type with default False'
-        assert result['type'] == 'boolean'
-        assert result['default'] == 'False'
-        assert result['value'] == 'False'
-
     @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_item_empty(self):
         """
@@ -513,17 +541,6 @@ class TestConfigurationManager:
 
         result = await get_category_all_items(category_name='integer')
         assert result is None
-
-    async def test_register_interest(self):
-        """
-        Test that when register_interest is called, _registered_interests gets updated
-        :assert:
-            1. when index of keys list is 0, corresponding name is 'boolean'
-            2. the value for _register_interests['boolean'] is {'tests.callback'}
-        """
-        register_interest(category_name='boolean', callback='tests.callback')
-        assert list(_registered_interests.keys())[0] == 'boolean'
-        assert _registered_interests['boolean'] == {'tests.callback'}
 
     async def test_register_interest_error(self):
         """
