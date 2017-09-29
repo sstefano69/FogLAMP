@@ -21,10 +21,14 @@ __version__ = "${VERSION}"
 
 _CONNECTION_STRING = "dbname='foglamp'"
 
-_CMD = "psql < %s > /dev/null 2>&1" % str(os.popen(
-    "locate foglamp_ddl.sql | grep 'FogLAMP/src/sql'").read()).strip()
-
 pytestmark = pytest.mark.asyncio
+
+async def delete_from_configuration():
+    """Remove initial data from configuration table"""
+    async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
+         async with engine.acquire() as conn:
+             await conn.execute(_configuration_tbl.delete())
+ 
 
 @pytest.allure.feature("unit")
 @pytest.allure.story("configuration manager")
@@ -39,14 +43,13 @@ class TestConfigurationManager:
         configuration (which should be empty), and clear data (if
         exists) in _registered_interests object"""
 
-        os.system(_CMD)
-        # asyncio.get_event_loop().run_until_complete(delete_from_configuration())
+        asyncio.get_event_loop().run_until_complete(delete_from_configuration())
         _registered_interests.clear()
 
     def teardown_method(self):
         """reset foglamp data in database, and clear data (if exists)
         in _registered_interests object"""
-        os.system(_CMD)
+        asyncio.get_event_loop().run_until_complete(delete_from_configuration())
         _registered_interests.clear()
 
     async def test_accepted_data_types(self):
@@ -260,8 +263,9 @@ class TestConfigurationManager:
         register_interest(category_name='boolean', callback='tests.callback')
         assert list(_registered_interests.keys())[0] == 'boolean'
         assert _registered_interests['boolean'] == {'tests.callback'}
-
-    '''async def test_create_category_invalid_category_name_none(self):
+    
+    @pytest.mark.xfail(reason="fails")
+    async def test_create_category_invalid_category_name_none(self):
         """"""
         with pytest.raises(TypeError) as error_exec:
                 await create_category(category_name=None, category_description='boolean type',
@@ -271,7 +275,7 @@ class TestConfigurationManager:
                                               'type': 'boolean',
                                               'default': 'False'}})
       
-        print(str(error_exec)) '''' 
+        print(str(error_exec))
 
     async def test_create_category_invalid_dict(self):
         """
