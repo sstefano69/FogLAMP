@@ -14,6 +14,11 @@ import os
 
 from foglamp import logger
 
+__author__ = "Stefano Simonelli"
+__copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
+__license__ = "Apache 2.0"
+__version__ = "${VERSION}"
+
 _MESSAGES_LIST = {
 
     # Information messages
@@ -37,7 +42,6 @@ _BACKUP_STATUS_RUNNING = -1
 _BACKUP_STATUS_RESTORED = -2
 
 # FIXME:
-# JOB_SEM_FILE_PATH = "/home/foglamp/Development/FogLAMP/src/python/foglamp/backup_restore"
 _JOB_SEM_FILE_PATH = "/tmp"
 _JOB_SEM_FILE_BACKUP = "backup.sem"
 _JOB_SEM_FILE_RESTORE = "restore.sem"
