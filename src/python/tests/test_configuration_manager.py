@@ -252,31 +252,7 @@ class TestConfigurationManager:
         assert result['type'] == 'boolean'
         assert result['default'] == 'False'
         assert result['value'] == 'False'
-
-    async def test_register_interest(self):
-        """
-        Test that when register_interest is called, _registered_interests gets updated
-        :assert:
-            1. when index of keys list is 0, corresponding name is 'boolean'
-            2. the value for _register_interests['boolean'] is {'tests.callback'}
-        """
-        register_interest(category_name='boolean', callback='tests.callback')
-        assert list(_registered_interests.keys())[0] == 'boolean'
-        assert _registered_interests['boolean'] == {'tests.callback'}
     
-    @pytest.mark.xfail(reason="fails")
-    async def test_create_category_invalid_category_name_none(self):
-        """"""
-        with pytest.raises(TypeError) as error_exec:
-                await create_category(category_name=None, category_description='boolean type',
-                                      category_value={
-                                          'info': {
-                                              'description': 'boolean type with default False',
-                                              'type': 'boolean',
-                                              'default': 'False'}})
-      
-        print(str(error_exec))
-
     async def test_create_category_invalid_dict(self):
         """
         Test that create_category returns the expected error when category_value
@@ -467,6 +443,9 @@ class TestConfigurationManager:
         assert ("TypeError: entry_val must be a string for item_name info " +
                 "and entry_name default") in str(error_exec)
 
+    async def test_get_all_category_names_error(self):
+        await get_all_category_names()
+
     @pytest.mark.xfail(reason="FOGL-552")
     async def test_set_category_item_value_error(self):
         """
@@ -546,19 +525,36 @@ class TestConfigurationManager:
         result = await get_category_all_items(category_name='integer')
         assert result is None
 
-    async def test_register_interest_error(self):
+    async def test_register_interest(self):
         """
-        Test that error gets returned when either category_name or callback is None
+        Test that when register_interest is called, _registered_interests gets updated
+        :assert:
+            1. when index of keys list is 0, corresponding name is 'boolean'
+            2. the value for _register_interests['boolean'] is {'tests.callback'}
+        """
+        register_interest(category_name='boolean', callback='tests.callback')
+        assert list(_registered_interests.keys())[0] == 'boolean'
+        assert _registered_interests['boolean'] == {'tests.callback'}
+
+    async def test_register_interest_category_name_none_error(self):
+        """
+        Test that error gets returned when category_name is None
         :Assert:
             Assert error message when category_name is None
-            Assert error message when callback is None
         """
         with pytest.raises(ValueError) as error_exec:
             register_interest(category_name=None, callback='foglamp.callback')
         assert "ValueError: Failed to register interest. category_name cannot be None" in (
             str(error_exec))
 
+    async def test_register_interest_callback_none_error(self):
+        """
+           Test that error gets returned when callback is None
+           :Assert:
+               Assert error message when callback is None
+        """
         with pytest.raises(ValueError) as error_exec:
             register_interest(category_name='integer', callback=None)
         assert "ValueError: Failed to register interest. callback cannot be None" in (
             str(error_exec))
+
