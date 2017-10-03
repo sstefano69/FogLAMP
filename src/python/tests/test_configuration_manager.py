@@ -5,7 +5,6 @@ tests to verify which data_types are supported and which are not.
 """
 
 import asyncio
-import os
 import pytest
 import sqlalchemy as sa
 import aiopg.sa
@@ -26,8 +25,8 @@ pytestmark = pytest.mark.asyncio
 async def delete_from_configuration():
     """Remove initial data from configuration table"""
     async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-         async with engine.acquire() as conn:
-             await conn.execute(_configuration_tbl.delete())
+        async with engine.acquire() as conn:
+            await conn.execute(_configuration_tbl.delete())
  
 
 @pytest.allure.feature("unit")
@@ -36,6 +35,14 @@ class TestConfigurationManager:
     """
     The following breaks down each configuration_manager method, and tests
     its errors, and behaviors
+    
+    The following tests need to be fixed/impmeneted
+    - Anything that is currently under @pytest.mark.xfail has 
+      currently doesn't work do to an expected behavior change
+    - FOGL-572: Verification of data type value in configuration manager 
+      (new test needs to be added)
+    - FOGL-585: Invalid Error when setting invalid category_name in create_category
+      (new test needs to be added)
     """
 
     def setup_method(self):
@@ -252,7 +259,7 @@ class TestConfigurationManager:
         assert result['type'] == 'boolean'
         assert result['default'] == 'False'
         assert result['value'] == 'False'
-    
+
     async def test_create_category_invalid_dict(self):
         """
         Test that create_category returns the expected error when category_value
@@ -557,4 +564,3 @@ class TestConfigurationManager:
             register_interest(category_name='integer', callback=None)
         assert "ValueError: Failed to register interest. callback cannot be None" in (
             str(error_exec))
-
