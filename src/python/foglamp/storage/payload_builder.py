@@ -47,6 +47,13 @@ class PayloadBuilder(object):
                 # TODO: Implement LIKE and IN later when support becomes available in storage service
                 if arg[1] in ['<', '>', '=', '>=', '<=', '!=']:
                     retval = True
+                else:
+                    print(3)
+            else:
+                print(2)
+        else:
+            print(1)
+
         return retval
 
     @staticmethod
@@ -114,9 +121,10 @@ class PayloadBuilder(object):
     @classmethod
     def WHERE(cls, arg):
         condition = {}
-        if cls.verify_condition(arg):
-            condition.update({"column": arg[0], "condition": arg[1], "value": arg[2]})
-            cls.query_payload.update({"where": condition})
+        if arg:
+            if cls.verify_condition(arg):
+                condition.update({"column": arg[0], "condition": arg[1], "value": arg[2]})
+                cls.query_payload.update({"where": condition})
         return cls
 
     @classmethod
@@ -129,12 +137,38 @@ class PayloadBuilder(object):
         return cls
 
     @classmethod
+    def AND_WHERE_LIST(cls, args):
+        if args:  # Necessiated due to api and test requirements
+            for arg in args:
+                condition = {}
+                if cls.verify_condition(arg):
+                    condition.update({"column": arg[0], "condition": arg[1], "value": arg[2]})
+                    if 'where' in cls.query_payload:
+                        cls.query_payload['where'].update({"and": condition})
+                    else:
+                        cls.query_payload.update({"where": condition})
+        return cls
+
+    @classmethod
     def OR_WHERE(cls, *args):
         for arg in args:
             if cls.verify_condition(arg):
                 condition = {}
                 condition.update({"column": arg[0], "condition": arg[1], "value": arg[2]})
                 cls.query_payload["where"].update({"or": condition})
+        return cls
+
+    @classmethod
+    def OR_WHERE_LIST(cls, args):
+        if args:  # Necessiated due to api and test requirements
+            for arg in args:
+                condition = {}
+                if cls.verify_condition(arg):
+                    condition.update({"column": arg[0], "condition": arg[1], "value": arg[2]})
+                    if 'where' in cls.query_payload:
+                        cls.query_payload['where'].update({"or": condition})
+                    else:
+                        cls.query_payload.update({"where": condition})
         return cls
 
     @classmethod
@@ -170,19 +204,26 @@ class PayloadBuilder(object):
         return cls
 
     @classmethod
-    def ORDER_BY(cls, *args):
-        for arg in args:
-            sort = {}
-            if cls.verify_orderby(arg):
-                sort.update({"column": arg[0], "direction": arg[1]})
-                if 'sort' in cls.query_payload:
-                    if isinstance(cls.query_payload['sort'], list):
-                        cls.query_payload['sort'].append(sort)
+    def OFFSET(cls, arg):
+        if isinstance(arg, int):
+            cls.query_payload.update({"offset": arg})
+        return cls
+
+    @classmethod
+    def ORDER_BY(cls, args):
+        if args:  # Necessiated due to api and test requirements
+            for arg in args:
+                sort = {}
+                if cls.verify_orderby(arg):
+                    sort.update({"column": arg[0], "direction": arg[1]})
+                    if 'sort' in cls.query_payload:
+                        if isinstance(cls.query_payload['sort'], list):
+                            cls.query_payload['sort'].append(sort)
+                        else:
+                            cls.query_payload['sort'] = list(cls.query_payload.get('sort'))
+                            cls.query_payload['sort'].append(sort)
                     else:
-                        cls.query_payload['sort'] = list(cls.query_payload.get('sort'))
-                        cls.query_payload['sort'].append(sort)
-                else:
-                    cls.query_payload.update({"sort": sort})
+                        cls.query_payload.update({"sort": sort})
         return cls
 
     @classmethod
@@ -207,80 +248,88 @@ if __name__ == "__main__":
 
     Service.Instances.register(name="store", s_type="Storage", address="0.0.0.0", port=8080)
 
-    # Select
-    _w_payload = PayloadBuilder().WHERE(["key", "=", "CoAP"]).payload()
-    print(_w_payload, '\n')
-    print(Storage().query_tbl_with_payload('configuration', _w_payload))
-    print('\n')
+    p = PayloadBuilder().WHERE(["asset_code", "=", "mouse"]).ORDER_BY(['user_ts', 'desc']).LIMIT(4).payload()
+    print(p, '\n')
+    with Storage() as conn:
+        # result = conn.query_tbl('readings')
+        result = conn.query_tbl_with_payload('readings', p)
 
-    _w_query_params = PayloadBuilder().WHERE(["key", "=", "CoAP"]).query_params()
-    print(_w_query_params, '\n')
-    print(Storage().query_tbl('configuration', _w_query_params))
-    print('\n')
+    print(result)
 
-    complex_payload = PayloadBuilder()\
-        .SELECT('id', 'type', 'repeat', 'process_name')\
-        .FROM('schedules')\
-        .WHERE(['id', '=', 'test'])\
-        .AND_WHERE(['process_name', '=', 'test'])\
-        .OR_WHERE(['process_name', '=', 'sleep'])\
-        .LIMIT(3)\
-        .GROUP_BY('process_name', 'id')\
-        .ORDER_BY(['process_name', 'desc'])\
-        .AGGREGATE(['count', 'process_name'])\
-        .payload()
-
-    print(complex_payload, '\n')
-
-    # TODO: Test above complex payload
-    # 1) FROM is not needed, as we pass table table name
-    # 2) Check: SELECT col1, col2 FROM tbl support i.e. specific columns
-    # 3) assert with expected payload
-
-    # Insert
-    insert_payload = PayloadBuilder()\
-        .INSERT(key='SENT_pb', history_ts='now', value='11')\
-        .payload()
-    print(insert_payload, '\n')
-
-    insert_test_data = OrderedDict()
-    insert_test_data['key'] = 'SENT_pb'
-    insert_test_data['history_ts'] = 'now'
-    insert_test_data['value'] = '11'
-
-    assert insert_payload == json.dumps(insert_test_data, sort_keys=True)
-
-    res = Storage().connect().insert_into_tbl("statistics_history", insert_payload)
-    print(res)
-    # assert res  "{'response': 'inserted'}"
-    Storage().disconnect()
-
-    # Update
-    update_payload = PayloadBuilder()\
-        .SET(value=22)\
-        .WHERE(['key', '=', 'SENT_pb'])\
-        .payload()
-    print(update_payload, '\n')
-
-    # update test data dict sample
-    condition = dict()
-    condition['column'] = 'key'
-    condition['condition'] = '='
-    condition['value'] = 'SENT_pb'
-
-    values = dict()
-    values['value'] = 22
-
-    update_test_data = dict()
-    # update_test_data['condition'] = condition # also works!
-    update_test_data['where'] = condition
-    update_test_data['values'] = values
-
-    assert update_payload == json.dumps(update_test_data, sort_keys=True)
-
-    res = Storage().connect().update_tbl("statistics_history", update_payload)
-    print(res)
-    # assert res  "{'response': 'updated'}"
-    Storage().disconnect()
-
-
+    # # Select
+    # _w_payload = PayloadBuilder().WHERE(["key", "=", "CoAP"]).payload()
+    # print(_w_payload, '\n')
+    # print(Storage().query_tbl_with_payload('configuration', _w_payload))
+    # print('\n')
+    #
+    # _w_query_params = PayloadBuilder().WHERE(["key", "=", "CoAP"]).query_params()
+    # print(_w_query_params, '\n')
+    # print(Storage().query_tbl('configuration', _w_query_params))
+    # print('\n')
+    #
+    # complex_payload = PayloadBuilder()\
+    #     .SELECT('id', 'type', 'repeat', 'process_name')\
+    #     .FROM('schedules')\
+    #     .WHERE(['id', '=', 'test'])\
+    #     .AND_WHERE(['process_name', '=', 'test'])\
+    #     .OR_WHERE(['process_name', '=', 'sleep'])\
+    #     .LIMIT(3)\
+    #     .GROUP_BY('process_name', 'id')\
+    #     .ORDER_BY(['process_name', 'desc'])\
+    #     .AGGREGATE(['count', 'process_name'])\
+    #     .payload()
+    #
+    # print(complex_payload, '\n')
+    #
+    # # TODO: Test above complex payload
+    # # 1) FROM is not needed, as we pass table table name
+    # # 2) Check: SELECT col1, col2 FROM tbl support i.e. specific columns
+    # # 3) assert with expected payload
+    #
+    # # Insert
+    # insert_payload = PayloadBuilder()\
+    #     .INSERT(key='SENT_pb', history_ts='now', value='11')\
+    #     .payload()
+    # print(insert_payload, '\n')
+    #
+    # insert_test_data = OrderedDict()
+    # insert_test_data['key'] = 'SENT_pb'
+    # insert_test_data['history_ts'] = 'now'
+    # insert_test_data['value'] = '11'
+    #
+    # assert insert_payload == json.dumps(insert_test_data, sort_keys=True)
+    #
+    # res = Storage().connect().insert_into_tbl("statistics_history", insert_payload)
+    # print(res)
+    # # assert res  "{'response': 'inserted'}"
+    # Storage().disconnect()
+    #
+    # # Update
+    # update_payload = PayloadBuilder()\
+    #     .SET(value=22)\
+    #     .WHERE(['key', '=', 'SENT_pb'])\
+    #     .payload()
+    # print(update_payload, '\n')
+    #
+    # # update test data dict sample
+    # condition = dict()
+    # condition['column'] = 'key'
+    # condition['condition'] = '='
+    # condition['value'] = 'SENT_pb'
+    #
+    # values = dict()
+    # values['value'] = 22
+    #
+    # update_test_data = dict()
+    # # update_test_data['condition'] = condition # also works!
+    # update_test_data['where'] = condition
+    # update_test_data['values'] = values
+    #
+    # assert update_payload == json.dumps(update_test_data, sort_keys=True)
+    #
+    # res = Storage().connect().update_tbl("statistics_history", update_payload)
+    # print(res)
+    # # assert res  "{'response': 'updated'}"
+    # Storage().disconnect()
+    #
+    #

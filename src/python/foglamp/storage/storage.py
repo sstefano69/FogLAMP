@@ -82,12 +82,13 @@ class Storage(AbstractStorage):
 
     def connect(self):
         # TODO: (Praveen) connect to storage service
-        print("Connecting to service: %s", self.service.__repr__)
+        # print("Connecting to service: %s", self.service.__repr__)
         return self
 
     def disconnect(self):
         # TODO: (Praveen) disconnect storage service
-        print("Disconnecting service")
+        # print("Disconnecting service")
+        pass
 
     def insert_into_tbl(self, tbl_name, data):
         """ insert json payload into given table
@@ -127,6 +128,10 @@ class Storage(AbstractStorage):
 
         res = r.read().decode()
         conn.close()
+
+        if res.count('ERROR'):
+            raise RuntimeError(res)
+
         return json.loads(res)
 
     def update_tbl(self, tbl_name, data):
@@ -171,6 +176,10 @@ class Storage(AbstractStorage):
 
         res = r.read().decode()
         conn.close()
+
+        if res.count('ERROR'):
+            raise RuntimeError(res)
+
         return json.loads(res)
 
     def delete_from_tbl(self, tbl_name, condition=None):
@@ -207,6 +216,10 @@ class Storage(AbstractStorage):
 
         res = r.read().decode()
         conn.close()
+
+        if res.count('ERROR'):
+            raise RuntimeError(res)
+
         return json.loads(res)
 
     def query_tbl(self, tbl_name, query=None):
@@ -239,6 +252,10 @@ class Storage(AbstractStorage):
 
         res = r.read().decode()
         conn.close()
+
+        if res.count('ERROR'):
+            raise RuntimeError(res)
+
         return json.loads(res)
 
     def query_tbl_with_payload(self, tbl_name, query_payload):
@@ -272,6 +289,10 @@ class Storage(AbstractStorage):
 
         res = r.read().decode()
         conn.close()
+
+        if res.count('ERROR'):
+            raise RuntimeError(res)
+
         return json.loads(res)
 
 

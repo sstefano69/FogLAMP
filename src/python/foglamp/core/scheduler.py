@@ -23,6 +23,11 @@ from sqlalchemy.dialects import postgresql as pg_types
 
 from foglamp import logger
 from foglamp import configuration_manager
+from foglamp.storage.storage import Storage
+from foglamp.storage.payload_builder import PayloadBuilder
+
+# TODO: Remove after merger of FOGL-517
+from foglamp.core.service_registry.service_registry import Service
 
 
 __author__ = "Terris Linenbach"
@@ -31,14 +36,14 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 # Module attributes
-_CONNECTION_STRING = "dbname='foglamp' user='foglamp'"
-
-try:
-  snap_user_common = os.environ['SNAP_USER_COMMON']
-  unix_socket_dir = "{}/tmp/".format(snap_user_common)
-  _CONNECTION_STRING = _CONNECTION_STRING + " host='" + unix_socket_dir + "'"
-except KeyError:
-  pass
+# _CONNECTION_STRING = "dbname='foglamp' user='foglamp'"
+#
+# try:
+#   snap_user_common = os.environ['SNAP_USER_COMMON']
+#   unix_socket_dir = "{}/tmp/".format(snap_user_common)
+#   _CONNECTION_STRING = _CONNECTION_STRING + " host='" + unix_socket_dir + "'"
+# except KeyError:
+#   pass
 
 
 class NotReadyError(RuntimeError):
@@ -71,159 +76,159 @@ class ScheduleNotFoundError(ValueError):
             "Schedule not found: {}".format(schedule_id), *args)
 
 
-# Forward declare
-class LogicExpr:
-    pass
-
-
-class Where(object):
-    @staticmethod
-    def and_(*argv)->LogicExpr:  # This should be Tuple[Query] but Python doesn't allow it
-        return LogicExpr(LogicExpr.Operator.AND, argv)
-
-    @staticmethod
-    def or_(*argv)->LogicExpr:  # This should be Tuple[Query] but Python doesn't allow it
-        return LogicExpr(LogicExpr.Operator.OR, argv)
-
-
-class WhereExpr(object):
-    def and_(self, *argv)->LogicExpr:
-        return LogicExpr(LogicExpr.Operator.AND, argv, self)
-
-    def or_(self, *argv)->LogicExpr:
-        return LogicExpr(LogicExpr.Operator.OR, argv, self)
-
-    def __and__(self, other):
-        return Where.and_(self, other)
-
-    def __or__(self, other):
-        return Where.or_(self, other)
-
-    @property
-    def query(self):
-        raise TypeError("Abstract method called")
-
-
-class LogicExpr(WhereExpr):
-    __slots__ = ['_and_expr', '_queries', '_operator']
-
-    class Operator(IntEnum):
-        """Enumeration for tasks.task_state"""
-        OR = 1
-        AND = 2
-
-    def __init__(self, operator: Operator, argv, and_expr: WhereExpr = None):
-        self._and_expr = and_expr
-        self._operator = operator
-        self._queries = argv  # type: Tuple[WhereExpr]
-
-    @property
-    def query(self):
-        queries = []
-
-        for query_item in self._queries:
-            queries.append(query_item.query)
-
-        if self._operator == self.Operator.AND:
-            if self._and_expr is not None:
-                return sqlalchemy.and_(self._and_expr.query, *queries)
-            return sqlalchemy.and_(*queries)
-        elif self._operator == self.Operator.OR:
-            if self._and_expr is not None:
-                return sqlalchemy.and_(self._and_expr.query, sqlalchemy.or_(*queries))
-            return sqlalchemy.or_(*queries)
-        else:
-            raise ValueError("Invalid operator: {}".format(int(self._operator)))
-
-
-class CompareExpr(WhereExpr):
-    __slots__ = ['_column', '_operator', '_value']
-
-    class Operator(IntEnum):
-        """Enumeration for tasks.task_state"""
-        NE = 1
-        EQ = 2
-        LT = 3
-        LE = 4
-        GT = 5
-        GE = 6
-        LIKE = 7
-        IN = 8
-
-    def __init__(self, column: sqlalchemy.Column, operator: Operator, value):
-        self._column = column
-        self._operator = operator
-        self._value = value
-
-    @property
-    def query(self):
-        if self._operator == self.Operator.NE:
-            return self._column != self._value
-        if self._operator == self.Operator.EQ:
-            return self._column == self._value
-        if self._operator == self.Operator.LT:
-            return self._column < self._value
-        if self._operator == self.Operator.LE:
-            return self._column <= self._value
-        if self._operator == self.Operator.GT:
-            return self._column > self._value
-        if self._operator == self.Operator.GE:
-            return self._column >= self._value
-        if self._operator == self.Operator.LIKE:
-            return self._column.like(self._value)
-        if self._operator == self.Operator.IN:
-            return self._column.in_(self._value)
-
-        raise ValueError("Invalid operator: {}".format(int(self._operator)))
-
-
-class AttributeDesc:  # Forward declare
-    pass
-
-
-class Attribute(object):
-    __slots__ = ['_column', '_desc']
-
-    def __init__(self, column: sqlalchemy.Column):
-        self._column = column
-        self._desc = AttributeDesc(column)
-
-    def in_(self, *argv):
-        return CompareExpr(self._column, CompareExpr.Operator.IN, argv)
-
-    def like(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.LIKE, value)
-
-    def __lt__(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.LT, value)
-
-    def __le__(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.LE, value)
-
-    def __eq__(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.EQ, value)
-
-    def __ne__(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.NE, value)
-
-    def __gt__(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.GT, value)
-
-    def __ge__(self, value):
-        return CompareExpr(self._column, CompareExpr.Operator.GE, value)
-
-    @property
-    def column(self)->sqlalchemy.Column:
-        return self._column
-
-    @property
-    def desc(self)->AttributeDesc:
-        return self._desc
-
-
-class AttributeDesc(Attribute):
-    def __init__(self, column: sqlalchemy.Column):
-        self._column = column.desc()
+# # Forward declare
+# class LogicExpr:
+#     pass
+#
+#
+# class Where(object):
+#     @staticmethod
+#     def and_(*argv)->LogicExpr:  # This should be Tuple[Query] but Python doesn't allow it
+#         return LogicExpr(LogicExpr.Operator.AND, argv)
+#
+#     @staticmethod
+#     def or_(*argv)->LogicExpr:  # This should be Tuple[Query] but Python doesn't allow it
+#         return LogicExpr(LogicExpr.Operator.OR, argv)
+#
+#
+# class WhereExpr(object):
+#     def and_(self, *argv)->LogicExpr:
+#         return LogicExpr(LogicExpr.Operator.AND, argv, self)
+#
+#     def or_(self, *argv)->LogicExpr:
+#         return LogicExpr(LogicExpr.Operator.OR, argv, self)
+#
+#     def __and__(self, other):
+#         return Where.and_(self, other)
+#
+#     def __or__(self, other):
+#         return Where.or_(self, other)
+#
+#     @property
+#     def query(self):
+#         raise TypeError("Abstract method called")
+#
+#
+# class LogicExpr(WhereExpr):
+#     __slots__ = ['_and_expr', '_queries', '_operator']
+#
+#     class Operator(IntEnum):
+#         """Enumeration for tasks.task_state"""
+#         OR = 1
+#         AND = 2
+#
+#     def __init__(self, operator: Operator, argv, and_expr: WhereExpr = None):
+#         self._and_expr = and_expr
+#         self._operator = operator
+#         self._queries = argv  # type: Tuple[WhereExpr]
+#
+#     @property
+#     def query(self):
+#         queries = []
+#
+#         for query_item in self._queries:
+#             queries.append(query_item.query)
+#
+#         if self._operator == self.Operator.AND:
+#             if self._and_expr is not None:
+#                 return sqlalchemy.and_(self._and_expr.query, *queries)
+#             return sqlalchemy.and_(*queries)
+#         elif self._operator == self.Operator.OR:
+#             if self._and_expr is not None:
+#                 return sqlalchemy.and_(self._and_expr.query, sqlalchemy.or_(*queries))
+#             return sqlalchemy.or_(*queries)
+#         else:
+#             raise ValueError("Invalid operator: {}".format(int(self._operator)))
+#
+#
+# class CompareExpr(WhereExpr):
+#     __slots__ = ['_column', '_operator', '_value']
+#
+#     class Operator(IntEnum):
+#         """Enumeration for tasks.task_state"""
+#         NE = 1
+#         EQ = 2
+#         LT = 3
+#         LE = 4
+#         GT = 5
+#         GE = 6
+#         LIKE = 7
+#         IN = 8
+#
+#     def __init__(self, column: sqlalchemy.Column, operator: Operator, value):
+#         self._column = column
+#         self._operator = operator
+#         self._value = value
+#
+#     @property
+#     def query(self):
+#         if self._operator == self.Operator.NE:
+#             return self._column != self._value
+#         if self._operator == self.Operator.EQ:
+#             return self._column == self._value
+#         if self._operator == self.Operator.LT:
+#             return self._column < self._value
+#         if self._operator == self.Operator.LE:
+#             return self._column <= self._value
+#         if self._operator == self.Operator.GT:
+#             return self._column > self._value
+#         if self._operator == self.Operator.GE:
+#             return self._column >= self._value
+#         if self._operator == self.Operator.LIKE:
+#             return self._column.like(self._value)
+#         if self._operator == self.Operator.IN:
+#             return self._column.in_(self._value)
+#
+#         raise ValueError("Invalid operator: {}".format(int(self._operator)))
+#
+#
+# class AttributeDesc:  # Forward declare
+#     pass
+#
+#
+# class Attribute(object):
+#     __slots__ = ['_column', '_desc']
+#
+#     def __init__(self, column: sqlalchemy.Column):
+#         self._column = column
+#         self._desc = AttributeDesc(column)
+#
+#     def in_(self, *argv):
+#         return CompareExpr(self._column, CompareExpr.Operator.IN, argv)
+#
+#     def like(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.LIKE, value)
+#
+#     def __lt__(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.LT, value)
+#
+#     def __le__(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.LE, value)
+#
+#     def __eq__(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.EQ, value)
+#
+#     def __ne__(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.NE, value)
+#
+#     def __gt__(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.GT, value)
+#
+#     def __ge__(self, value):
+#         return CompareExpr(self._column, CompareExpr.Operator.GE, value)
+#
+#     @property
+#     def column(self)->sqlalchemy.Column:
+#         return self._column
+#
+#     @property
+#     def desc(self)->AttributeDesc:
+#         return self._desc
+#
+#
+# class AttributeDesc(Attribute):
+#     def __init__(self, column: sqlalchemy.Column):
+#         self._column = column.desc()
 
 
 class Task(object):
@@ -258,11 +263,11 @@ class Task(object):
     @classmethod
     def init(cls, tasks_tbl: sqlalchemy.Table)->None:
         """Initializes class attributes"""
-        cls.attr.state = Attribute(tasks_tbl.c.state)
-        cls.attr.process_name = Attribute(tasks_tbl.c.process_name)
-        cls.attr.start_time = Attribute(tasks_tbl.c.start_time)
-        cls.attr.end_time = Attribute(tasks_tbl.c.end_time)
-        cls.attr.exit_code = Attribute(tasks_tbl.c.end_time)
+        # cls.attr.state = Attribute(tasks_tbl.c.state)
+        # cls.attr.process_name = Attribute(tasks_tbl.c.process_name)
+        # cls.attr.start_time = Attribute(tasks_tbl.c.start_time)
+        # cls.attr.end_time = Attribute(tasks_tbl.c.end_time)
+        # cls.attr.exit_code = Attribute(tasks_tbl.c.end_time)
 
 
 class ScheduledProcess(object):
@@ -414,46 +419,49 @@ class Scheduler(object):
 
         cls = Scheduler
 
+        # TODO: Remove after merger of FOGL-517
+        Service.Instances.register(name="store", s_type="Storage", address="0.0.0.0", port=8080)
+
         # Initialize class attributes
         if not cls._logger:
             cls._logger = logger.setup(__name__)
             # cls._logger = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
             # cls._logger = logger.setup(__name__, level=logging.DEBUG)
 
-        if cls._schedules_tbl is None:
-            metadata = sqlalchemy.MetaData()
-
-            cls._schedules_tbl = sqlalchemy.Table(
-                'schedules',
-                metadata,
-                sqlalchemy.Column('id', pg_types.UUID),
-                sqlalchemy.Column('schedule_name', sqlalchemy.types.VARCHAR(20)),
-                sqlalchemy.Column('process_name', sqlalchemy.types.VARCHAR(20)),
-                sqlalchemy.Column('schedule_type', sqlalchemy.types.SMALLINT),
-                sqlalchemy.Column('schedule_time', sqlalchemy.types.TIME),
-                sqlalchemy.Column('schedule_day', sqlalchemy.types.SMALLINT),
-                sqlalchemy.Column('schedule_interval', sqlalchemy.types.Interval),
-                sqlalchemy.Column('exclusive', sqlalchemy.types.BOOLEAN))
-
-            cls._tasks_tbl = sqlalchemy.Table(
-                'tasks',
-                metadata,
-                sqlalchemy.Column('id', pg_types.UUID),
-                sqlalchemy.Column('process_name', sqlalchemy.types.VARCHAR(20)),
-                sqlalchemy.Column('state', sqlalchemy.types.INT),
-                sqlalchemy.Column('start_time', sqlalchemy.types.TIMESTAMP),
-                sqlalchemy.Column('end_time', sqlalchemy.types.TIMESTAMP),
-                sqlalchemy.Column('pid', sqlalchemy.types.INT),
-                sqlalchemy.Column('exit_code', sqlalchemy.types.INT),
-                sqlalchemy.Column('reason', sqlalchemy.types.VARCHAR(255)))
-
-            Task.init(cls._tasks_tbl)
-
-            cls._scheduled_processes_tbl = sqlalchemy.Table(
-                'scheduled_processes',
-                metadata,
-                sqlalchemy.Column('name', pg_types.VARCHAR(20)),
-                sqlalchemy.Column('script', pg_types.JSONB))
+        # if cls._schedules_tbl is None:
+        #     metadata = sqlalchemy.MetaData()
+        #
+        #     cls._schedules_tbl = sqlalchemy.Table(
+        #         'schedules',
+        #         metadata,
+        #         sqlalchemy.Column('id', pg_types.UUID),
+        #         sqlalchemy.Column('schedule_name', sqlalchemy.types.VARCHAR(20)),
+        #         sqlalchemy.Column('process_name', sqlalchemy.types.VARCHAR(20)),
+        #         sqlalchemy.Column('schedule_type', sqlalchemy.types.SMALLINT),
+        #         sqlalchemy.Column('schedule_time', sqlalchemy.types.TIME),
+        #         sqlalchemy.Column('schedule_day', sqlalchemy.types.SMALLINT),
+        #         sqlalchemy.Column('schedule_interval', sqlalchemy.types.Interval),
+        #         sqlalchemy.Column('exclusive', sqlalchemy.types.BOOLEAN))
+        #
+        #     cls._tasks_tbl = sqlalchemy.Table(
+        #         'tasks',
+        #         metadata,
+        #         sqlalchemy.Column('id', pg_types.UUID),
+        #         sqlalchemy.Column('process_name', sqlalchemy.types.VARCHAR(20)),
+        #         sqlalchemy.Column('state', sqlalchemy.types.INT),
+        #         sqlalchemy.Column('start_time', sqlalchemy.types.TIMESTAMP),
+        #         sqlalchemy.Column('end_time', sqlalchemy.types.TIMESTAMP),
+        #         sqlalchemy.Column('pid', sqlalchemy.types.INT),
+        #         sqlalchemy.Column('exit_code', sqlalchemy.types.INT),
+        #         sqlalchemy.Column('reason', sqlalchemy.types.VARCHAR(255)))
+        #
+        #     Task.init(cls._tasks_tbl)
+        #
+        #     cls._scheduled_processes_tbl = sqlalchemy.Table(
+        #         'scheduled_processes',
+        #         metadata,
+        #         sqlalchemy.Column('name', pg_types.VARCHAR(20)),
+        #         sqlalchemy.Column('script', pg_types.JSONB))
 
         # Instance attributes
         self._engine = None  # type: aiopg.sa.Engine
@@ -605,11 +613,11 @@ class Scheduler(object):
 
         return True
 
-    async def _get_connection_pool(self) -> aiopg.sa.Engine:
-        """Returns a database connection pool object"""
-        if self._engine is None:
-            self._engine = await aiopg.sa.create_engine(_CONNECTION_STRING)
-        return self._engine
+    # async def _get_connection_pool(self) -> aiopg.sa.Engine:
+    #     """Returns a database connection pool object"""
+    #     if self._engine is None:
+    #         self._engine = await aiopg.sa.create_engine(_CONNECTION_STRING)
+    #     return self._engine
 
     async def _start_task(self, schedule: _ScheduleRow) -> None:
         """Starts a task process
@@ -649,22 +657,38 @@ class Scheduler(object):
         # Startup tasks are not tracked in the tasks table
         if schedule.type != Schedule.Type.STARTUP:
             # The task row needs to exist before the completion handler runs
-            insert = self._tasks_tbl.insert()
-            insert = insert.values(id=str(task_id),
-                                   pid=(self._schedule_executions[schedule.id].
-                                        task_processes[task_id].process.pid),
-                                   process_name=schedule.process_name,
-                                   state=int(Task.State.RUNNING),
-                                   start_time=datetime.datetime.now())
-
-            self._logger.debug('Database command: %s', insert)
-
+            insert_payload = PayloadBuilder() \
+                .INSERT(id=str(task_id),
+                        pid=(self._schedule_executions[schedule.id].
+                             task_processes[task_id].process.pid),
+                        process_name=schedule.process_name,
+                        state=int(Task.State.RUNNING),
+                        start_time=str(datetime.datetime.now())) \
+                .payload()
             try:
-                async with (await self._get_connection_pool()).acquire() as conn:
-                    await conn.execute(insert)
+                with Storage() as conn:
+                    self._logger.debug('Database command: %s', insert_payload)
+                    res = conn.insert_into_tbl("tasks", insert_payload)
             except Exception:
-                self._logger.exception('Insert failed: %s', insert)
+                self._logger.exception('Insert failed: %s', insert_payload)
                 # The process has started. Regardless of this error it must be waited on.
+
+                    # insert = self._tasks_tbl.insert()
+            # insert = insert.values(id=str(task_id),
+            #                        pid=(self._schedule_executions[schedule.id].
+            #                             task_processes[task_id].process.pid),
+            #                        process_name=schedule.process_name,
+            #                        state=int(Task.State.RUNNING),
+            #                        start_time=datetime.datetime.now())
+            #
+            # self._logger.debug('Database command: %s', insert)
+            #
+            # try:
+            #     async with (await self._get_connection_pool()).acquire() as conn:
+            #         await conn.execute(insert)
+            # except Exception:
+            #     self._logger.exception('Insert failed: %s', insert)
+            #     # The process has started. Regardless of this error it must be waited on.
 
         asyncio.ensure_future(self._wait_for_task_completion(task_process))
 
@@ -711,26 +735,41 @@ class Scheduler(object):
             else:
                 state = Task.State.COMPLETE
 
-            update = self._tasks_tbl.update()
-            update = update.where(self._tasks_tbl.c.id == str(task_process.task_id))
-            # TODO Populate reason?
-            update = update.values(exit_code=exit_code,
-                                   state=int(state),
-                                   end_time=datetime.datetime.now())
-
-            self._logger.debug('Database command: %s', update)
-
             # Update the task's status
+            update_payload = PayloadBuilder() \
+                .SET(exit_code=exit_code,
+                     state=int(state),
+                     end_time=str(datetime.datetime.now())) \
+                .WHERE(['id', '=', str(task_process.task_id)]) \
+                .payload()
             try:
-                async with (await self._get_connection_pool()).acquire() as conn:
-                    result = await conn.execute(update)
-
-                    if result.rowcount == 0:
-                        self._logger.warning('Task %s not found. Unable to update its status.',
-                                             task_process.task_id)
+                with Storage() as conn:
+                    self._logger.debug('Database command: %s', update_payload)
+                    res = conn.update_tbl("tasks", update_payload)
             except Exception:
-                self._logger.exception('Update failed: %s', update)
+                self._logger.exception('Update failed: %s', update_payload)
                 # Must keep going!
+
+            # update = self._tasks_tbl.update()
+            # update = update.where(self._tasks_tbl.c.id == str(task_process.task_id))
+            # # TODO Populate reason?
+            # update = update.values(exit_code=exit_code,
+            #                        state=int(state),
+            #                        end_time=datetime.datetime.now())
+            #
+            # self._logger.debug('Database command: %s', update)
+            #
+            # # Update the task's status
+            # try:
+            #     async with (await self._get_connection_pool()).acquire() as conn:
+            #         result = await conn.execute(update)
+            #
+            #         if result.rowcount == 0:
+            #             self._logger.warning('Task %s not found. Unable to update its status.',
+            #                                  task_process.task_id)
+            # except Exception:
+            #     self._logger.exception('Update failed: %s', update)
+            #     # Must keep going!
 
         # Due to maximum running tasks reached, it is necessary to
         # look for schedules that are ready to run even if there
@@ -986,79 +1025,140 @@ class Scheduler(object):
                 datetime.datetime.fromtimestamp(schedule_execution.next_start_time))
 
     async def _get_process_scripts(self):
-        query = sqlalchemy.select([self._scheduled_processes_tbl.c.name,
-                                  self._scheduled_processes_tbl.c.script])
-
-        query.select_from(self._scheduled_processes_tbl)
-
-        self._logger.debug('Database command: %s', query)
-
+        query_payload = PayloadBuilder().WHERE(["1", "=", "1"]).payload()
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
-                async for row in conn.execute(query):
-                    self._process_scripts[row.name] = row.script
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', query_payload)
+                res = conn.query_tbl_with_payload("scheduled_processes", query_payload)
+                for row in res['rows']:
+                    self._process_scripts[row.get('name')] = row.get('script')
         except Exception:
-            self._logger.exception('Select failed: %s', query)
+            self._logger.exception('Query failed: %s', query_payload)
             raise
+
+        # query = sqlalchemy.select([self._scheduled_processes_tbl.c.name,
+        #                           self._scheduled_processes_tbl.c.script])
+        #
+        # query.select_from(self._scheduled_processes_tbl)
+        #
+        # self._logger.debug('Database command: %s', query)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         async for row in conn.execute(query):
+        #             self._process_scripts[row.name] = row.script
+        # except Exception:
+        #     self._logger.exception('Select failed: %s', query)
+        #     raise
 
     async def _mark_tasks_interrupted(self):
         """The state for any task with a NULL end_time is set to interrupted"""
-        update = self._tasks_tbl.update()
-        update = update.where(self._tasks_tbl.c.end_time is None)
-        update = update.values(state=int(Task.State.INTERRUPTED),
-                               end_time=datetime.datetime.now())
-
-        self._logger.debug('Database command: %s', update)
-
+        # Update the task's status
+        update_payload = PayloadBuilder()\
+            .SET(state=int(Task.State.INTERRUPTED),
+                    end_time=str(datetime.datetime.now()))\
+            .WHERE(['end_time', '=', "NULL"])\
+            .payload()
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
-                await conn.execute(update)
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', update_payload)
+                res = conn.update_tbl("tasks", update_payload)
         except Exception:
-            self._logger.exception('Update failed: %s', update)
+            self._logger.exception('Update failed: %s', update_payload)
             raise
+
+        # update = self._tasks_tbl.update()
+        # update = update.where(self._tasks_tbl.c.end_time is None)
+        # update = update.values(state=int(Task.State.INTERRUPTED),
+        #                        end_time=datetime.datetime.now())
+        #
+        # self._logger.debug('Database command: %s', update)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         await conn.execute(update)
+        # except Exception:
+        #     self._logger.exception('Update failed: %s', update)
+        #     raise
 
     async def _get_schedules(self):
         # TODO: Get processes first, then add to Schedule
-        query = sqlalchemy.select([self._schedules_tbl.c.id,
-                                   self._schedules_tbl.c.schedule_name,
-                                   self._schedules_tbl.c.schedule_type,
-                                   self._schedules_tbl.c.schedule_time,
-                                   self._schedules_tbl.c.schedule_day,
-                                   self._schedules_tbl.c.schedule_interval,
-                                   self._schedules_tbl.c.exclusive,
-                                   self._schedules_tbl.c.process_name])
-
-        query.select_from(self._schedules_tbl)
-
-        self._logger.debug('Database command: %s', query)
-
+        query_payload = PayloadBuilder().WHERE(["1", "=", "1"]).payload()
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
-                async for row in conn.execute(query):
-                    interval = row.schedule_interval
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', query_payload)
+                res = conn.query_tbl_with_payload("schedules", query_payload)
+                for row in res['rows']:
+                    s_interval = datetime.datetime.strptime(row.get('schedule_interval'), "%H:%M:%S")
+                    interval = datetime.timedelta(hours=s_interval.hour, minutes=s_interval.minute, seconds=s_interval.second)
 
                     repeat_seconds = None
                     if interval is not None:
                         repeat_seconds = interval.total_seconds()
 
-                    schedule_id = uuid.UUID(row.id)
+                    s_ti = row.get('schedule_time') if row.get('schedule_time') else '00:00:00'
+                    s_tim = datetime.datetime.strptime(s_ti, "%H:%M:%S")
+                    schedule_time = datetime.time().replace(hour=s_tim.hour, minute=s_tim.minute, second=s_tim.second)
+
+                    schedule_id = uuid.UUID(row.get('id'))
 
                     schedule = self._ScheduleRow(
-                                        id=schedule_id,
-                                        name=row.schedule_name,
-                                        type=row.schedule_type,
-                                        day=row.schedule_day,
-                                        time=row.schedule_time,
-                                        repeat=interval,
-                                        repeat_seconds=repeat_seconds,
-                                        exclusive=row.exclusive,
-                                        process_name=row.process_name)
+                        id=schedule_id,
+                        name=row.get('schedule_name'),
+                        type=int(row.get('schedule_type')),
+                        day=int(row.get('schedule_day')) if row.get('schedule_day').strip() else 0,
+                        time=schedule_time,
+                        repeat=interval,
+                        repeat_seconds=repeat_seconds,
+                        exclusive=True if row.get('exclusive') == 't' else False,
+                        process_name=row.get('process_name'))
 
                     self._schedules[schedule_id] = schedule
                     self._schedule_first_task(schedule, self._start_time)
         except Exception:
-            self._logger.exception('Select failed: %s', query)
+            self._logger.exception('Query failed: %s', query_payload)
             raise
+
+        # query = sqlalchemy.select([self._schedules_tbl.c.id,
+        #                            self._schedules_tbl.c.schedule_name,
+        #                            self._schedules_tbl.c.schedule_type,
+        #                            self._schedules_tbl.c.schedule_time,
+        #                            self._schedules_tbl.c.schedule_day,
+        #                            self._schedules_tbl.c.schedule_interval,
+        #                            self._schedules_tbl.c.exclusive,
+        #                            self._schedules_tbl.c.process_name])
+        #
+        # query.select_from(self._schedules_tbl)
+        #
+        # self._logger.debug('Database command: %s', query)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         async for row in conn.execute(query):
+        #             interval = row.schedule_interval
+        #
+        #             repeat_seconds = None
+        #             if interval is not None:
+        #                 repeat_seconds = interval.total_seconds()
+        #
+        #             schedule_id = uuid.UUID(row.id)
+        #
+        #             schedule = self._ScheduleRow(
+        #                                 id=schedule_id,
+        #                                 name=row.schedule_name,
+        #                                 type=row.schedule_type,
+        #                                 day=row.schedule_day,
+        #                                 time=row.schedule_time,
+        #                                 repeat=interval,
+        #                                 repeat_seconds=repeat_seconds,
+        #                                 exclusive=row.exclusive,
+        #                                 process_name=row.process_name)
+        #
+        #             self._schedules[schedule_id] = schedule
+        #             self._schedule_first_task(schedule, self._start_time)
+        # except Exception:
+        #     self._logger.exception('Select failed: %s', query)
+        #     raise
 
     async def _read_storage(self):
         """Reads schedule information from the storage server"""
@@ -1153,9 +1253,9 @@ class Scheduler(object):
             raise ValueError("name can not be empty")
 
         if schedule.repeat is not None and not isinstance(schedule.repeat, datetime.timedelta):
-            raise ValueError('repeat must be of type datetime.time')
+            raise ValueError('repeat must be of type datetime.timedelta')
 
-        if schedule.exclusive is None:
+        if schedule.exclusive is None or not (schedule.exclusive == True or schedule.exclusive == False):
             raise ValueError('exclusive can not be None')
 
         if isinstance(schedule, TimedSchedule):
@@ -1186,47 +1286,85 @@ class Scheduler(object):
                 is_new_schedule = True
 
         if not is_new_schedule:
-            update = self._schedules_tbl.update()
-            update = update.where(self._schedules_tbl.c.id == str(schedule.schedule_id))
-            update = update.values(schedule_name=schedule.name,
+            update_payload = PayloadBuilder() \
+                .SET(schedule_name=schedule.name,
                                    schedule_type=int(schedule.schedule_type),
-                                   schedule_interval=schedule.repeat,
-                                   schedule_day=day,
-                                   schedule_time=schedule_time,
-                                   exclusive=schedule.exclusive,
-                                   process_name=schedule.process_name)
-
-            self._logger.debug('Database command: %s', update)
-
+                                   schedule_interval=str(schedule.repeat),
+                                   schedule_day=day if day else 0,
+                                   schedule_time=str(schedule_time) if schedule_time else '00:00:00',
+                                   exclusive='t' if schedule.exclusive else 'f',
+                                   process_name=schedule.process_name) \
+                .WHERE(['id', '=', str(schedule.schedule_id)]) \
+                .payload()
             try:
-                async with (await self._get_connection_pool()).acquire() as conn:
-                    result = await conn.execute(update)
-
-                    if result.rowcount == 0:
+                with Storage() as conn:
+                    self._logger.debug('Database command: %s', update_payload)
+                    res = conn.update_tbl("schedules", update_payload)
+                    if res.get('count') == 0:
                         is_new_schedule = True
             except Exception:
-                self._logger.debug('Update failed: %s', update)
+                self._logger.exception('Update failed: %s', update_payload)
                 raise
+
+            # update = self._schedules_tbl.update()
+            # update = update.where(self._schedules_tbl.c.id == str(schedule.schedule_id))
+            # update = update.values(schedule_name=schedule.name,
+            #                        schedule_type=int(schedule.schedule_type),
+            #                        schedule_interval=schedule.repeat,
+            #                        schedule_day=day,
+            #                        schedule_time=schedule_time,
+            #                        exclusive=schedule.exclusive,
+            #                        process_name=schedule.process_name)
+            #
+            # self._logger.debug('Database command: %s', update)
+            #
+            # try:
+            #     async with (await self._get_connection_pool()).acquire() as conn:
+            #         result = await conn.execute(update)
+            #
+            #         if result.rowcount == 0:
+            #             is_new_schedule = True
+            # except Exception:
+            #     self._logger.debug('Update failed: %s', update)
+            #     raise
 
         if is_new_schedule:
-            insert = self._schedules_tbl.insert()
-            insert = insert.values(id=str(schedule.schedule_id),
+            insert_payload = PayloadBuilder() \
+                .INSERT(id=str(schedule.schedule_id),
                                    schedule_type=int(schedule.schedule_type),
                                    schedule_name=schedule.name,
-                                   schedule_interval=schedule.repeat,
-                                   schedule_day=day,
-                                   schedule_time=schedule_time,
-                                   exclusive=schedule.exclusive,
-                                   process_name=schedule.process_name)
-
-            self._logger.debug('Database command: %s', insert)
-
+                                   schedule_interval=str(schedule.repeat),
+                                   schedule_day=day if day else 0,
+                                   schedule_time=str(schedule_time) if schedule_time else '00:00:00',
+                                   exclusive='t' if schedule.exclusive else 'f',
+                                   process_name=schedule.process_name) \
+                .payload()
             try:
-                async with (await self._get_connection_pool()).acquire() as conn:
-                    await conn.execute(insert)
+                with Storage() as conn:
+                    self._logger.debug('Database command: %s', insert_payload)
+                    res = conn.insert_into_tbl("schedules", insert_payload)
             except Exception:
-                self._logger.exception('Insert failed: %s', insert)
+                self._logger.exception('Insert failed: %s', insert_payload)
                 raise
+
+            # insert = self._schedules_tbl.insert()
+            # insert = insert.values(id=str(schedule.schedule_id),
+            #                        schedule_type=int(schedule.schedule_type),
+            #                        schedule_name=schedule.name,
+            #                        schedule_interval=schedule.repeat,
+            #                        schedule_day=day,
+            #                        schedule_time=schedule_time,
+            #                        exclusive=schedule.exclusive,
+            #                        process_name=schedule.process_name)
+            #
+            # self._logger.debug('Database command: %s', insert)
+            #
+            # try:
+            #     async with (await self._get_connection_pool()).acquire() as conn:
+            #         await conn.execute(insert)
+            # except Exception:
+            #     self._logger.exception('Insert failed: %s', insert)
+            #     raise
 
         repeat_seconds = None
         if schedule.repeat is not None:
@@ -1271,24 +1409,35 @@ class Scheduler(object):
         if not self._ready:
             raise NotReadyError()
 
-        # TODO: Inspect race conditions with _set_first
         try:
             del self._schedules[schedule_id]
         except KeyError:
             raise ScheduleNotFoundError(schedule_id)
 
-        delete = self._schedules_tbl.delete()
-        delete = delete.where(self._schedules_tbl.c.id == str(schedule_id))
-
-        self._logger.debug('Database command: %s', delete)
-
+        # TODO: Inspect race conditions with _set_first
+        delete_payload = PayloadBuilder() \
+            .WHERE(['id', '=', str(schedule_id)]) \
+            .payload()
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
-                await conn.execute(self._schedules_tbl.delete().where(
-                    self._schedules_tbl.c.id == str(schedule_id)))
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', delete_payload)
+                res = conn.delete_from_tbl("schedules", delete_payload)
         except Exception:
-            self._logger.exception('Delete failed: %s', delete)
+            self._logger.exception('Delete failed: %s', delete_payload)
             raise
+
+        # delete = self._schedules_tbl.delete()
+        # delete = delete.where(self._schedules_tbl.c.id == str(schedule_id))
+        #
+        # self._logger.debug('Database command: %s', delete)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         await conn.execute(self._schedules_tbl.delete().where(
+        #             self._schedules_tbl.c.id == str(schedule_id)))
+        # except Exception:
+        #     self._logger.exception('Delete failed: %s', delete)
+        #     raise
 
     @classmethod
     def _schedule_row_to_schedule(cls,
@@ -1392,42 +1541,65 @@ class Scheduler(object):
             tasks.append(task)
 
         return tasks
+
     async def get_task(self, task_id: uuid.UUID)->Task:
         """Retrieves a task given its id"""
-        query = sqlalchemy.select([self._tasks_tbl.c.id,
-                                   self._tasks_tbl.c.process_name,
-                                   self._tasks_tbl.c.state,
-                                   self._tasks_tbl.c.start_time,
-                                   self._tasks_tbl.c.end_time,
-                                   self._tasks_tbl.c.exit_code,
-                                   self._tasks_tbl.c.reason])
-        query.select_from(self._tasks_tbl)
-        query = query.where(self._tasks_tbl.c.id == str(task_id))
-
-        self._logger.debug('Database command: %s', query)
+        query_payload = PayloadBuilder().WHERE(["id", "=", task_id]).payload()
 
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
-                async for row in conn.execute(query):
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', query_payload)
+                res = conn.query_tbl_with_payload("tasks", query_payload)
+                for row in res['rows']:
                     task = Task()
-                    task.task_id = uuid.UUID(row.id)
-                    task.state = Task.State(row.state)
-                    task.start_time = row.start_time
-                    task.process_name = row.process_name
-                    task.end_time = row.end_time
-                    task.exit_code = row.exit_code
-                    task.reason = row.reason
+                    task.task_id = row.get('id')
+                    task.state = Task.State(int(row.get('state')))
+                    task.start_time = row.get('start_time')
+                    task.process_name = row.get('process_name')
+                    task.end_time = row.get('end_time')
+                    task.exit_code = row.get('exit_code')
+                    task.reason = row.get('reason')
 
                     return task
         except Exception:
-            self._logger.exception('Select failed: %s', query)
+            self._logger.exception('Query failed: %s', query_payload)
             raise
+
+        # query = sqlalchemy.select([self._tasks_tbl.c.id,
+        #                            self._tasks_tbl.c.process_name,
+        #                            self._tasks_tbl.c.state,
+        #                            self._tasks_tbl.c.start_time,
+        #                            self._tasks_tbl.c.end_time,
+        #                            self._tasks_tbl.c.exit_code,
+        #                            self._tasks_tbl.c.reason])
+        # query.select_from(self._tasks_tbl)
+        # query = query.where(self._tasks_tbl.c.id == str(task_id))
+        #
+        # self._logger.debug('Database command: %s', query)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         async for row in conn.execute(query):
+        #             task = Task()
+        #             task.task_id = uuid.UUID(row.id)
+        #             task.state = Task.State(row.state)
+        #             task.start_time = row.start_time
+        #             task.process_name = row.process_name
+        #             task.end_time = row.end_time
+        #             task.exit_code = row.exit_code
+        #             task.reason = row.reason
+        #
+        #             return task
+        # except Exception:
+        #     self._logger.exception('Select failed: %s', query)
+        #     raise
 
         raise TaskNotFoundError(task_id)
 
-    async def get_tasks(self, limit: int = 100, offset: int = 0,
-                        where: WhereExpr = None,
-                        sort: Union[Attribute, Iterable[Attribute]] = None)->List[Task]:
+    async def get_tasks(self, limit=100, offset=0, where=None, and_where_list=None, or_where_list=None, sort=None)->List[Task]:
+    # async def get_tasks(self, limit: int = 100, offset: int = 0,
+    #                     where: WhereExpr = None,
+    #                     sort: Union[Attribute, Iterable[Attribute]] = None) -> List[Task]:
         """Retrieves tasks
         The result set is ordered by start_time descending
         Args:
@@ -1440,56 +1612,89 @@ class Scheduler(object):
                 A list of Task attributes to sort by. Defaults to
                 Task.attr.start_time.desc
         """
-        query = sqlalchemy.select([self._tasks_tbl.c.id,
-                                   self._tasks_tbl.c.process_name,
-                                   self._tasks_tbl.c.state,
-                                   self._tasks_tbl.c.start_time,
-                                   self._tasks_tbl.c.end_time,
-                                   self._tasks_tbl.c.exit_code,
-                                   self._tasks_tbl.c.reason])
 
-        query.select_from(self._tasks_tbl)
-
-        if where:
-            query = query.where(where.query)
-
-        if sort:
-            if isinstance(sort, collections.Iterable):
-                for order in sort:
-                    query = query.order_by(order.column)
-            else:
-                query = query.order_by(sort.column)
-        else:
-            query = query.order_by(self._tasks_tbl.c.start_time.desc())
-
-        if offset:
-            query = query.offset(offset)
-
-        if limit:
-            query = query.limit(limit)
+        query_payload = PayloadBuilder()\
+            .WHERE(where)\
+            .AND_WHERE_LIST(and_where_list)\
+            .OR_WHERE_LIST(or_where_list)\
+            .LIMIT(limit)\
+            .OFFSET(offset)\
+            .ORDER_BY(sort)\
+            .payload()
 
         tasks = []
 
-        self._logger.debug('Database command: %s', query)
-
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
-                async for row in conn.execute(query):
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', query_payload)
+                res = conn.query_tbl_with_payload("tasks", query_payload)
+                for row in res['rows']:
                     task = Task()
-                    task.task_id = uuid.UUID(row.id)
-                    task.state = Task.State(row.state)
-                    task.start_time = row.start_time
-                    task.process_name = row.process_name
-                    task.end_time = row.end_time
-                    task.exit_code = row.exit_code
-                    task.reason = row.reason
+                    task.task_id = row.get('id')
+                    task.state = Task.State(int(row.get('state')))
+                    task.start_time = row.get('start_time')
+                    task.process_name = row.get('process_name')
+                    task.end_time = row.get('end_time')
+                    task.exit_code = row.get('exit_code')
+                    task.reason = row.get('reason')
 
                     tasks.append(task)
         except Exception:
-            self._logger.exception('Select failed: %s', query)
+            self._logger.exception('Query failed: %s', query_payload)
             raise
-            
+
         return tasks
+
+        # query = sqlalchemy.select([self._tasks_tbl.c.id,
+        #                            self._tasks_tbl.c.process_name,
+        #                            self._tasks_tbl.c.state,
+        #                            self._tasks_tbl.c.start_time,
+        #                            self._tasks_tbl.c.end_time,
+        #                            self._tasks_tbl.c.exit_code,
+        #                            self._tasks_tbl.c.reason])
+        #
+        # query.select_from(self._tasks_tbl)
+        #
+        # if where:
+        #     query = query.where(where.query)
+        #
+        # if sort:
+        #     if isinstance(sort, collections.Iterable):
+        #         for order in sort:
+        #             query = query.order_by(order.column)
+        #     else:
+        #         query = query.order_by(sort.column)
+        # else:
+        #     query = query.order_by(self._tasks_tbl.c.start_time.desc())
+        #
+        # if offset:
+        #     query = query.offset(offset)
+        #
+        # if limit:
+        #     query = query.limit(limit)
+        #
+        # tasks = []
+        #
+        # self._logger.debug('Database command: %s', query)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         async for row in conn.execute(query):
+        #             task = Task()
+        #             task.task_id = uuid.UUID(row.id)
+        #             task.state = Task.State(row.state)
+        #             task.start_time = row.start_time
+        #             task.process_name = row.process_name
+        #             task.end_time = row.end_time
+        #             task.exit_code = row.exit_code
+        #             task.reason = row.reason
+        #
+        #             tasks.append(task)
+        # except Exception:
+        #     self._logger.exception('Select failed: %s', query)
+        #     raise
+        #
+        # return tasks
 
     async def cancel_task(self, task_id: uuid.UUID)->None:
         """Cancels a running task
@@ -1548,31 +1753,51 @@ class Scheduler(object):
         if not self._ready:
             raise NotReadyError()
 
-        query = sqlalchemy.select([self._tasks_tbl.c.id])
-        query.select_from(self._tasks_tbl)
-        query = query.where((self._tasks_tbl.c.state != int(Task.State.RUNNING)) & (
-                                self._tasks_tbl.c.start_time < datetime.datetime.now() -
-                                self._max_completed_task_age))
-        query = query.limit(self._DELETE_TASKS_LIMIT)
-
-        delete = self._tasks_tbl.delete()
-        delete = delete.where(self._tasks_tbl.c.id == query.as_scalar())
-
-        self._logger.debug('Database command: %s', delete)
-
+        delete_payload = PayloadBuilder() \
+            .WHERE(["state", "!=", int(Task.State.RUNNING)]) \
+            .AND_WHERE(["start_time", "<", datetime.datetime.now() - self._max_completed_task_age]) \
+            .LIMIT(self._DELETE_TASKS_LIMIT) \
+            .payload()
         try:
-            async with (await self._get_connection_pool()).acquire() as conn:
+            with Storage() as conn:
+                self._logger.debug('Database command: %s', delete_payload)
                 while not self._paused:
-                    result = await conn.execute(delete)
-                    if result.rowcount < self._DELETE_TASKS_LIMIT:
+                    res = conn.delete_from_tbl("tasks", delete_payload)
+                    if res.get("count") < self._DELETE_TASKS_LIMIT:
                         break
         except Exception:
-            self._logger.exception('Delete failed: %s', delete)
+            self._logger.exception('Delete failed: %s', delete_payload)
             raise
         finally:
             self._purge_tasks_task = None
 
         self._last_task_purge_time = time.time()
+
+        # query = sqlalchemy.select([self._tasks_tbl.c.id])
+        # query.select_from(self._tasks_tbl)
+        # query = query.where((self._tasks_tbl.c.state != int(Task.State.RUNNING)) & (
+        #                         self._tasks_tbl.c.start_time < datetime.datetime.now() -
+        #                         self._max_completed_task_age))
+        # query = query.limit(self._DELETE_TASKS_LIMIT)
+        #
+        # delete = self._tasks_tbl.delete()
+        # delete = delete.where(self._tasks_tbl.c.id == query.as_scalar())
+        #
+        # self._logger.debug('Database command: %s', delete)
+        #
+        # try:
+        #     async with (await self._get_connection_pool()).acquire() as conn:
+        #         while not self._paused:
+        #             result = await conn.execute(delete)
+        #             if result.rowcount < self._DELETE_TASKS_LIMIT:
+        #                 break
+        # except Exception:
+        #     self._logger.exception('Delete failed: %s', delete)
+        #     raise
+        # finally:
+        #     self._purge_tasks_task = None
+        #
+        # self._last_task_purge_time = time.time()
 
     async def _read_config(self):
         """Reads configuration"""
