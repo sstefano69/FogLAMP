@@ -10,21 +10,55 @@ import os
 import time
 import uuid
 
+import aiopg
 import pytest
 
 from foglamp.core.scheduler import (Scheduler, IntervalSchedule, ScheduleNotFoundError, Task,
-                                    Schedule, TimedSchedule, ManualSchedule, StartUpSchedule, Where)
+                                    Schedule, TimedSchedule, ManualSchedule, StartUpSchedule)
 
+from foglamp.storage.storage import Storage
+from foglamp.storage.payload_builder import PayloadBuilder
+
+from foglamp.core.service_registry.service_registry import Service
 
 __author__ = "Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
+_CONNECTION_STRING = "dbname='foglamp' user='foglamp'"
+
 
 @pytest.allure.feature("unit")
 @pytest.allure.story("scheduler")
 class TestScheduler:
+    _engine = None  # type: aiopg.sa.Engine
+
+    async def _get_connection_pool(self) -> aiopg.sa.Engine:
+        """Returns a database connection pool object"""
+        if self._engine is None:
+            self._engine = await aiopg.sa.create_engine(_CONNECTION_STRING)
+        return self._engine
+
+    async def populate_test_data(self):
+        """Delete all schedule-related tables and insert processes for testing"""
+        async with (await self._get_connection_pool()).acquire() as conn:
+            await conn.execute('delete from foglamp.tasks')
+            await conn.execute('delete from foglamp.schedules')
+            await conn.execute('delete from foglamp.scheduled_processes')
+            await conn.execute(
+                '''insert into foglamp.scheduled_processes(name, script)
+                values('sleep1', '["sleep", "1"]')''')
+            await conn.execute(
+                '''insert into foglamp.scheduled_processes(name, script)
+                values('sleep10', '["sleep", "10"]')''')
+            await conn.execute(
+                '''insert into foglamp.scheduled_processes(name, script)
+                values('sleep30', '["sleep", "30"]')''')
+            await conn.execute(
+                '''insert into foglamp.scheduled_processes(name, script)
+                values('sleep5', '["sleep", "5"]')''')
+
     @staticmethod
     async def stop_scheduler(scheduler: Scheduler)->None:
         """stop the schedule process - called at the end of each test"""
@@ -35,12 +69,18 @@ class TestScheduler:
             except TimeoutError:
                 await asyncio.sleep(1)
 
+    def setup_method(self):
+        pass
+
+    def teardown_method(self):
+            Service.Instances.unregister(name="store", s_type="Storage", address="0.0.0.0", port=8080)
+
     @pytest.mark.asyncio
     async def test_stop(self):
         """Test that stop_scheduler actually works"""
         scheduler = Scheduler()  # Declare schedule
 
-        await scheduler.populate_test_data()  # Populate data in foglamp.scheduled_processes
+        await self.populate_test_data()  # Populate data in foglamp.scheduled_processes
         await scheduler.start()  # Start scheduler
 
         # Set schedule interval
@@ -63,7 +103,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()  # Populate data in foglamp.scheduled_processes
+        await self.populate_test_data()  # Populate data in foglamp.scheduled_processes
         await scheduler.start()
 
         # assert that the schedule type is interval
@@ -95,7 +135,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()  # Populate data in foglamp.scheduled_processes
+        await self.populate_test_data()  # Populate data in foglamp.scheduled_processes
         await scheduler.start()
 
         # assert that the schedule type is interval
@@ -116,7 +156,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         interval_schedule = IntervalSchedule()
@@ -148,7 +188,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         interval_schedule = IntervalSchedule()
@@ -201,7 +241,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()  # Populate data in foglamp.scheduled_processes
+        await self.populate_test_data()  # Populate data in foglamp.scheduled_processes
         await scheduler.start()  # Start scheduler
 
         # Declare schedule startup, and execute
@@ -256,7 +296,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         # Declare manual interval schedule
@@ -283,7 +323,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         # 2 maximum tasks
@@ -338,7 +378,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         timed_schedule = TimedSchedule()
@@ -384,7 +424,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         # Set schedule to be interval based
@@ -412,7 +452,7 @@ class TestScheduler:
         """Cancel a running process"""
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         interval_schedule = IntervalSchedule()
@@ -434,7 +474,7 @@ class TestScheduler:
             Schedule is retrieved by id """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         # Declare schedule
@@ -466,7 +506,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         interval_schedule = IntervalSchedule()
@@ -493,7 +533,7 @@ class TestScheduler:
         """
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         # declare scheduler task
@@ -508,11 +548,11 @@ class TestScheduler:
 
         # Assert running tasks
         tasks = await scheduler.get_tasks(
-            where=Task.attr.state == int(Task.State.INTERRUPTED))
+            where=[Task.attr.state, "=", int(Task.State.INTERRUPTED)])
         assert not tasks
 
         tasks = await scheduler.get_tasks(
-            where=(Task.attr.end_time == None))
+            where=[Task.attr.end_time, "=", None])
         assert tasks
 
         tasks = await scheduler.get_tasks(50)
@@ -524,33 +564,21 @@ class TestScheduler:
         assert len(tasks) == 1
 
         tasks = await scheduler.get_tasks(
-            where=Task.attr.state.in_(int(Task.State.RUNNING)),
-            sort=[Task.attr.state.desc], offset=50)
+            where=[Task.attr.state, "=", int(Task.State.RUNNING)],
+            sort=[[Task.attr.state, "desc"]], offset=50)
         assert not tasks
 
         tasks = await scheduler.get_tasks(
-            where=(Task.attr.state == int(Task.State.RUNNING)).or_(
-                Task.attr.state == int(Task.State.RUNNING),
-                Task.attr.state == int(Task.State.RUNNING)).and_(
-                Task.attr.state.in_(int(Task.State.RUNNING)),
-                Task.attr.state.in_(int(Task.State.RUNNING)).or_(
-                    Task.attr.state.in_(int(Task.State.RUNNING)))),
-            sort=(Task.attr.state.desc, Task.attr.start_time))
+            where=[Task.attr.state, "=", int(Task.State.RUNNING)],
+            sort=[[Task.attr.state, "desc"], [Task.attr.start_time, "asc"]])
         assert tasks
 
-        tasks = await scheduler.get_tasks(
-            where=Where.or_(Task.attr.state == int(Task.State.RUNNING),
-                            Task.attr.state == int(Task.State.RUNNING)))
+        tasks = await scheduler.get_tasks(or_where_list=[[Task.attr.state, "=", int(Task.State.RUNNING)],
+                            [Task.attr.state, "=", int(Task.State.RUNNING)]])
         assert tasks
 
-        tasks = await scheduler.get_tasks(
-            where=(Task.attr.state == int(Task.State.RUNNING)) | (
-                Task.attr.state.in_(int(Task.State.RUNNING))))
-        assert tasks
-
-        tasks = await scheduler.get_tasks(
-            where=(Task.attr.state == int(Task.State.RUNNING)) & (
-                Task.attr.state.in_(int(Task.State.RUNNING))))
+        tasks = await scheduler.get_tasks(and_where_list=[[Task.attr.state, "=", int(Task.State.RUNNING)],
+                                                         [Task.attr.state, "=", int(Task.State.RUNNING)]])
         assert tasks
 
         await self.stop_scheduler(scheduler)
@@ -559,7 +587,7 @@ class TestScheduler:
     async def test_purge_tasks(self):
         scheduler = Scheduler()
 
-        await scheduler.populate_test_data()
+        await self.populate_test_data()
         await scheduler.start()
 
         interval_schedule = IntervalSchedule()

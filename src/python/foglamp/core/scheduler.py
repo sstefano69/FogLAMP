@@ -419,8 +419,11 @@ class Scheduler(object):
 
         cls = Scheduler
 
-        # TODO: Remove after merger of FOGL-517
-        Service.Instances.register(name="store", s_type="Storage", address="0.0.0.0", port=8080)
+        try:
+            # TODO: Remove after merger of FOGL-517
+            Service.Instances.register(name="store", s_type="Storage", address="0.0.0.0", port=8080)
+        except Service.AlreadyExistsWithTheSameName:
+            pass
 
         # Initialize class attributes
         if not cls._logger:
@@ -1216,25 +1219,25 @@ class Scheduler(object):
                 # other coroutines
                 await asyncio.sleep(0)
 
-    async def populate_test_data(self):
-        """Delete all schedule-related tables and insert processes for testing"""
-        async with (await self._get_connection_pool()).acquire() as conn:
-            await conn.execute('delete from foglamp.tasks')
-            await conn.execute('delete from foglamp.schedules')
-            await conn.execute('delete from foglamp.scheduled_processes')
-            await conn.execute(
-                '''insert into foglamp.scheduled_processes(name, script)
-                values('sleep1', '["sleep", "1"]')''')
-            await conn.execute(
-                '''insert into foglamp.scheduled_processes(name, script)
-                values('sleep10', '["sleep", "10"]')''')
-            await conn.execute(
-                '''insert into foglamp.scheduled_processes(name, script)
-                values('sleep30', '["sleep", "30"]')''')
-            await conn.execute(
-                '''insert into foglamp.scheduled_processes(name, script)
-                values('sleep5', '["sleep", "5"]')''')
-
+    # async def populate_test_data(self):
+    #     """Delete all schedule-related tables and insert processes for testing"""
+    #     async with (await self._get_connection_pool()).acquire() as conn:
+    #         await conn.execute('delete from foglamp.tasks')
+    #         await conn.execute('delete from foglamp.schedules')
+    #         await conn.execute('delete from foglamp.scheduled_processes')
+    #         await conn.execute(
+    #             '''insert into foglamp.scheduled_processes(name, script)
+    #             values('sleep1', '["sleep", "1"]')''')
+    #         await conn.execute(
+    #             '''insert into foglamp.scheduled_processes(name, script)
+    #             values('sleep10', '["sleep", "10"]')''')
+    #         await conn.execute(
+    #             '''insert into foglamp.scheduled_processes(name, script)
+    #             values('sleep30', '["sleep", "30"]')''')
+    #         await conn.execute(
+    #             '''insert into foglamp.scheduled_processes(name, script)
+    #             values('sleep5', '["sleep", "5"]')''')
+    #
     async def save_schedule(self, schedule: Schedule):
         """Creates or update a schedule
 
