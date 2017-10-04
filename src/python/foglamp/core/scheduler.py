@@ -1624,7 +1624,7 @@ class Scheduler(object):
             .OFFSET(offset)\
             .ORDER_BY(sort)\
             .payload()
-
+        print(query_payload)
         tasks = []
 
         try:
@@ -1758,7 +1758,7 @@ class Scheduler(object):
 
         delete_payload = PayloadBuilder() \
             .WHERE(["state", "!=", int(Task.State.RUNNING)]) \
-            .AND_WHERE(["start_time", "<", datetime.datetime.now() - self._max_completed_task_age]) \
+            .AND_WHERE(["start_time", "<", str(datetime.datetime.now() - self._max_completed_task_age)]) \
             .LIMIT(self._DELETE_TASKS_LIMIT) \
             .payload()
         try:
@@ -1766,8 +1766,9 @@ class Scheduler(object):
                 self._logger.debug('Database command: %s', delete_payload)
                 while not self._paused:
                     res = conn.delete_from_tbl("tasks", delete_payload)
-                    if res.get("count") < self._DELETE_TASKS_LIMIT:
-                        break
+                    # TODO: Uncomment below when delete count becomes available in storage layer
+                    # if res.get("count") < self._DELETE_TASKS_LIMIT:
+                    break
         except Exception:
             self._logger.exception('Delete failed: %s', delete_payload)
             raise

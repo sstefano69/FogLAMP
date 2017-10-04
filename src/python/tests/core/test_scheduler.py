@@ -16,9 +16,6 @@ import pytest
 from foglamp.core.scheduler import (Scheduler, IntervalSchedule, ScheduleNotFoundError, Task,
                                     Schedule, TimedSchedule, ManualSchedule, StartUpSchedule)
 
-from foglamp.storage.storage import Storage
-from foglamp.storage.payload_builder import PayloadBuilder
-
 from foglamp.core.service_registry.service_registry import Service
 
 __author__ = "Terris Linenbach"
@@ -73,7 +70,9 @@ class TestScheduler:
         pass
 
     def teardown_method(self):
-            Service.Instances.unregister(name="store", s_type="Storage", address="0.0.0.0", port=8080)
+        # TODO: Remove after merger of FOGL-517
+        s_id = Service.Instances.get()[0]
+        Service.Instances.unregister(s_id._id)
 
     @pytest.mark.asyncio
     async def test_stop(self):
@@ -112,6 +111,7 @@ class TestScheduler:
 
         interval_schedule.name = 'sleep10'
         interval_schedule.process_name = "sleep10"
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
 
         await scheduler.save_schedule(interval_schedule)
 
@@ -123,7 +123,7 @@ class TestScheduler:
         await asyncio.sleep(12)
         # Assert only 1 task is running
         tasks = await scheduler.get_running_tasks()
-        assert len(tasks) == 0
+        assert len(tasks) == 1
 
         await self.stop_scheduler(scheduler)
 
@@ -162,6 +162,7 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'sleep10'
         interval_schedule.process_name = 'sleep10'
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
 
         await scheduler.save_schedule(interval_schedule)
 
@@ -169,6 +170,7 @@ class TestScheduler:
         manual_schedule.schedule_id = interval_schedule.schedule_id
         manual_schedule.name = 'manual'
         manual_schedule.process_name = 'sleep10'
+        manual_schedule.repeat = datetime.timedelta(seconds=0)
 
         await scheduler.save_schedule(manual_schedule)
 
@@ -194,6 +196,7 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'sleep10'
         interval_schedule.process_name = "sleep10"
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
 
         await scheduler.save_schedule(interval_schedule)  # Save update on scheduler
 
@@ -303,6 +306,7 @@ class TestScheduler:
         manual_schedule = ManualSchedule()
         manual_schedule.name = 'manual task'
         manual_schedule.process_name = 'sleep10'
+        manual_schedule.repeat = datetime.timedelta(seconds=0)
 
         await scheduler.save_schedule(manual_schedule)
         manual_schedule = await scheduler.get_schedule(manual_schedule.schedule_id)
@@ -391,6 +395,7 @@ class TestScheduler:
         timed_schedule.process_name = 'sleep10'
         timed_schedule.day = 2
         timed_schedule.time = datetime.time(hour=8)
+        timed_schedule.repeat = datetime.timedelta(seconds=0)
 
         # Set env timezone
         os.environ["TZ"] = "PST8PDT"
@@ -431,6 +436,8 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'deletetest'
         interval_schedule.process_name = "sleep1"
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
+
         await scheduler.save_schedule(interval_schedule)
 
         await asyncio.sleep(5)
@@ -458,6 +465,8 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'cancel_test'
         interval_schedule.process_name = 'sleep30'
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
+
         await scheduler.save_schedule(interval_schedule)
 
         await asyncio.sleep(5)
@@ -481,6 +490,8 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'get_schedule_test'
         interval_schedule.process_name = "sleep30"
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
+
         await scheduler.save_schedule(interval_schedule)
 
         # Get schedule
@@ -512,17 +523,20 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'get_task'
         interval_schedule.process_name = "sleep30"
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
+
         await scheduler.save_schedule(interval_schedule)
         await asyncio.sleep(1)
 
         tasks = await scheduler.get_running_tasks()  # retrieve list running tasks
         assert len(tasks)
 
-        task = await scheduler.get_task(tasks[0].task_id)
+        task = await scheduler.get_task(str(tasks[0].task_id))
         assert task  # assert there exists a task
 
         await self.stop_scheduler(scheduler)
 
+    @pytest.mark.skip(reason="This test needs total revamping and redesign in light of new get_tasks()")
     @pytest.mark.asyncio
     async def test_get_tasks(self):
         """Get list of tasks
@@ -542,43 +556,48 @@ class TestScheduler:
         interval_schedule.process_name = "sleep5"
         interval_schedule.repeat = datetime.timedelta(seconds=1)
         interval_schedule.exclusive = False
+
         await scheduler.save_schedule(interval_schedule)
 
         await asyncio.sleep(15)
 
         # Assert running tasks
         tasks = await scheduler.get_tasks(
-            where=[Task.attr.state, "=", int(Task.State.INTERRUPTED)])
+            where=["state", "=", int(Task.State.INTERRUPTED)])
         assert not tasks
 
-        tasks = await scheduler.get_tasks(
-            where=[Task.attr.end_time, "=", None])
-        assert tasks
+        # TODO: Uncomment below when support for NULL becomes available in storage services
+        # tasks = await scheduler.get_tasks(
+        #     where=["end_time", "=", 'NULL'])
+        # assert tasks
 
-        tasks = await scheduler.get_tasks(50)
+        tasks = await scheduler.get_tasks(limit=50)
+        states = [int(task.state) for task in tasks]
+
         assert len(tasks) > 1
-        assert tasks[0].state == Task.State.RUNNING
-        assert tasks[-1].state == Task.State.COMPLETE
+        assert int(Task.State.RUNNING) in states
+        assert int(Task.State.COMPLETE) in states
 
         tasks = await scheduler.get_tasks(1)
         assert len(tasks) == 1
 
         tasks = await scheduler.get_tasks(
-            where=[Task.attr.state, "=", int(Task.State.RUNNING)],
-            sort=[[Task.attr.state, "desc"]], offset=50)
+            where=["state", "=", int(Task.State.RUNNING)],
+            sort=[["state", "desc"]], offset=50)
+        print(tasks)
         assert not tasks
 
         tasks = await scheduler.get_tasks(
-            where=[Task.attr.state, "=", int(Task.State.RUNNING)],
-            sort=[[Task.attr.state, "desc"], [Task.attr.start_time, "asc"]])
+            where=["state", "=", int(Task.State.RUNNING)],
+            sort=[["state", "desc"], ["start_time", "asc"]])
         assert tasks
 
-        tasks = await scheduler.get_tasks(or_where_list=[[Task.attr.state, "=", int(Task.State.RUNNING)],
-                            [Task.attr.state, "=", int(Task.State.RUNNING)]])
+        tasks = await scheduler.get_tasks(or_where_list=[["state", "=", int(Task.State.RUNNING)],
+                            ["state", "=", int(Task.State.RUNNING)]])
         assert tasks
 
-        tasks = await scheduler.get_tasks(and_where_list=[[Task.attr.state, "=", int(Task.State.RUNNING)],
-                                                         [Task.attr.state, "=", int(Task.State.RUNNING)]])
+        tasks = await scheduler.get_tasks(and_where_list=[["state", "=", int(Task.State.RUNNING)],
+                                                         ["state", "=", int(Task.State.RUNNING)]])
         assert tasks
 
         await self.stop_scheduler(scheduler)
@@ -593,7 +612,9 @@ class TestScheduler:
         interval_schedule = IntervalSchedule()
         interval_schedule.name = 'purge_task'
         interval_schedule.process_name = "sleep5"
+        interval_schedule.repeat = datetime.timedelta(seconds=0)
         # interval_schedule.repeat = datetime.timedelta(seconds=30)
+
         await scheduler.save_schedule(interval_schedule)
 
         await asyncio.sleep(1)

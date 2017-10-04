@@ -38,7 +38,8 @@ import uuid
 import pytest
 
 from foglamp.core.scheduler import (Scheduler, IntervalSchedule, ScheduleNotFoundError, Task,
-                                    Schedule, TimedSchedule, ManualSchedule, StartUpSchedule, Where)
+                                    Schedule, TimedSchedule, ManualSchedule, StartUpSchedule)
+from foglamp.core.service_registry.service_registry import Service
 
 
 __author__ = "Terris Linenbach"
@@ -100,6 +101,14 @@ class TestScheduler:
         except Exception:
             print('Insert failed: %s' % stmt)
             raise
+
+    def setup_method(self):
+        pass
+
+    def teardown_method(self):
+        # TODO: Remove after merger of FOGL-517
+        s_id = Service.Instances.get()[0]
+        Service.Instances.unregister(s_id._id)
 
     @pytest.mark.asyncio
     async def test_insert_error_tasks_table(self):
