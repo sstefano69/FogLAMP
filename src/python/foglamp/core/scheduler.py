@@ -1028,7 +1028,7 @@ class Scheduler(object):
                 datetime.datetime.fromtimestamp(schedule_execution.next_start_time))
 
     async def _get_process_scripts(self):
-        query_payload = PayloadBuilder().WHERE(["1", "=", "1"]).payload()
+        query_payload = PayloadBuilder().LIMIT(10000).payload()
         try:
             with Storage() as conn:
                 self._logger.debug('Database command: %s', query_payload)
@@ -1086,7 +1086,7 @@ class Scheduler(object):
 
     async def _get_schedules(self):
         # TODO: Get processes first, then add to Schedule
-        query_payload = PayloadBuilder().WHERE(["1", "=", "1"]).payload()
+        query_payload = PayloadBuilder().LIMIT(10000).payload()
         try:
             with Storage() as conn:
                 self._logger.debug('Database command: %s', query_payload)
@@ -1599,7 +1599,7 @@ class Scheduler(object):
 
         raise TaskNotFoundError(task_id)
 
-    async def get_tasks(self, limit=100, offset=0, where=None, and_where_list=None, or_where_list=None, sort=None)->List[Task]:
+    async def get_tasks(self, limit=100, offset=0, where=None, and_where=None, or_where=None, sort=None)->List[Task]:
     # async def get_tasks(self, limit: int = 100, offset: int = 0,
     #                     where: WhereExpr = None,
     #                     sort: Union[Attribute, Iterable[Attribute]] = None) -> List[Task]:
@@ -1612,18 +1612,23 @@ class Scheduler(object):
             limit: Return at most this number of rows
             where: A query
             sort:
-                A list of Task attributes to sort by. Defaults to
-                Task.attr.start_time.desc
+                A tuple of Task attributes to sort by.
+                Defaults to ("start_time", "desc")
         """
 
-        query_payload = PayloadBuilder()\
-            .WHERE(where)\
-            .AND_WHERE_LIST(and_where_list)\
-            .OR_WHERE_LIST(or_where_list)\
-            .LIMIT(limit)\
-            .OFFSET(offset)\
-            .ORDER_BY(sort)\
-            .payload()
+        chain_payload = PayloadBuilder().LIMIT(limit).chain_payload()
+        if offset:
+            chain_payload = PayloadBuilder(chain_payload).OFFSET(offset).chain_payload()
+        if where:
+            chain_payload = PayloadBuilder(chain_payload).WHERE(where).chain_payload()
+        if and_where:
+            chain_payload = PayloadBuilder(chain_payload).AND_WHERE(and_where).chain_payload()
+        if or_where:
+            chain_payload = PayloadBuilder(chain_payload).OR_WHERE(or_where).chain_payload()
+        if sort:
+            chain_payload = PayloadBuilder(chain_payload).ORDER_BY(sort).chain_payload()
+
+        query_payload = PayloadBuilder(chain_payload).payload()
         print(query_payload)
         tasks = []
 

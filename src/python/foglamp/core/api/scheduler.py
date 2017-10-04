@@ -528,15 +528,15 @@ async def get_tasks(request):
 
         name = request.query.get('name') if 'name' in request.query else None
 
-        where_clause = [["1", "=", "1"]]
+        where_clause = None
         if name and state:
-            where_clause = [["process_name", "=", name], ["state", "=", state]]
+            where_clause = (["process_name", "=", name], ["state", "=", state])
         elif name:
-            where_clause = [["process_name", "=", name]]
+            where_clause = ["process_name", "=", name]
         elif state:
-            where_clause = [["state", "=", state]]
+            where_clause = ["state", "=", state]
 
-        tasks = await server.Server.scheduler.get_tasks(and_where_list=where_clause, limit=limit)
+        tasks = await server.Server.scheduler.get_tasks(where=where_clause, limit=limit)
 
         if len(tasks) == 0:
             raise TaskNotFoundError("No Tasks")

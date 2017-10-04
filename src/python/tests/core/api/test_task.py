@@ -61,21 +61,10 @@ class TestTask:
     @classmethod
     def setup_class(cls):
         asyncio.get_event_loop().run_until_complete(add_master_data())
-        from subprocess import call
-        call(["foglamp", "start"])
-        time.sleep(2)
 
     @classmethod
     def teardown_class(cls):
-        from subprocess import call
-        call(["foglamp", "stop"])
         asyncio.get_event_loop().run_until_complete(delete_master_data())
-
-    def setup_method(self, method):
-        pass
-
-    def teardown_method(self, method):
-        pass
 
     def _schedule_task(self, data):
         r = requests.post(BASE_URL + '/schedule', data=json.dumps(data), headers=headers)
