@@ -18,37 +18,38 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_CONNECTION_STRING = "dbname='foglamp'"
-
 pytestmark = pytest.mark.asyncio
 
+_CONNECTION_STRING = "dbname='foglamp'"
+
+
 async def delete_from_configuration():
-    """Remove initial data from configuration table"""
+    """ Remove initial data from configuration table """
+
+    sql = sa.text("DELETE FROM configuration WHERE key IN "
+                  "('boolean', 'integer', 'string', 'IPv4', 'IPv6', 'X509 cer', 'password', 'JSON')")
     async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
         async with engine.acquire() as conn:
-            await conn.execute(_configuration_tbl.delete())
+            await conn.execute(sql)
  
 
 @pytest.allure.feature("unit")
 @pytest.allure.story("configuration manager")
 class TestConfigurationManager:
-    """
-    The following breaks down each configuration_manager method, and tests
-    its errors, and behaviors
+    """ configuration_manager tests
     
-    The following tests need to be fixed/impmeneted
-    - Anything that is currently under @pytest.mark.xfail has 
-      currently doesn't work do to an expected behavior change
-    - FOGL-572: Verification of data type value in configuration manager 
-      (new test needs to be added)
-    - FOGL-585: Invalid Error when setting invalid category_name in create_category
-      (new test needs to be added)
+    The following tests need to be fixed/implemented:
+
+        - Anything that is currently under @pytest.mark.xfail; currently doesn't work due to an expected behavior change
+        - FOGL-572: Verification of data type value in configuration manager (new test needs to be added)
+        - FOGL-585: Invalid Error when setting invalid category_name in create_category (new test needs to be added)
+        - FOGL-577
+        - 1 not yet implemented test
     """
 
     def setup_method(self):
-        """reset foglamp data in database, with the exception of
-        configuration (which should be empty), and clear data (if
-        exists) in _registered_interests object"""
+        """ reset configuration table data for specific category_name/s,
+        and clear data (if exists) in _registered_interests object"""
 
         asyncio.get_event_loop().run_until_complete(delete_from_configuration())
         _registered_interests.clear()
@@ -60,18 +61,20 @@ class TestConfigurationManager:
         _registered_interests.clear()
 
     async def test_accepted_data_types(self):
-        """
-        Test that the accepted data types get inserted by using:
+        """ Test that the accepted data types get inserted
+
             - create_category
             - get_all_category_names (category_name and category_description)
             - get_category_all_items (category_value by category_name)
-        :Assert:
+
+        :assert:
             1. Assert that the number of values returned by get_all_category_names
                 equals len(data)
             2. category_description returned with get_all_category_names correlates to the
                 correct ke
             3. get_category_all_items returns valid category_values for a given key
         """
+
         data = {
             'boolean': {'category_description': 'boolean type',
                         'category_value': {
@@ -109,7 +112,7 @@ class TestConfigurationManager:
                              'description': "IPv6 type with default '2001:db8::'",
                              'type': 'IPv6',
                              'default': '2001:db8::'}}},
-            'X509': {'category_description': 'X509 Certification',
+            'X509 cer': {'category_description': 'X509 Certification',
                      'category_value': {
                          'info': {
                              'description': "X509 Certification",
@@ -128,14 +131,19 @@ class TestConfigurationManager:
                                   category_value=data[category_name]['category_value'],
                                   keep_original_items=True)
 
+        # assert 8 more records created, if 0 then will be 8 if from init already then init + 8
         select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
         async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
             async with engine.acquire() as conn:
-                async for count in conn.execute(select_count_stmt):
-                    assert int(count[0]) == len(data)
+                result = conn.execute(select_count_stmt)
+                async for r in result:
+                    assert int(r[0]) == len(data)
 
         categories = await get_all_category_names()
+        # assert 8 more records created, if 0 then will be 8 if from init already then init + 8
         assert len(categories) == len(data)
+
+        # only filter and test above 8 records
         for category in categories:
             key = category[0].strip()
             assert data[key]['category_description'] == category[1]
@@ -148,8 +156,8 @@ class TestConfigurationManager:
                 category_info['info']['default'])
 
     async def test_create_category_keep_original_items_true(self):
-        """
-        Test the behavior of create_category when keep_original_items == True
+        """ Test the behavior of create_category when keep_original_items == True
+
         :assert:
             1. `values` dictionary has both categories
             2. values in 'data' category are as expected
@@ -184,8 +192,8 @@ class TestConfigurationManager:
         assert category_info['data']['default'] == '0'
 
     async def test_create_category_keep_original_items_false(self):
-        """
-        Test the behavior of create_category when keep_original_items == False
+        """ Test the behavior of create_category when keep_original_items == False
+
         :assert:
             1. initial `info` data has been added
             2. `values` dictionary only has 'data' category
@@ -214,11 +222,12 @@ class TestConfigurationManager:
         assert category_info['data']['default'] == '0'
 
     async def test_set_category_item_value_entry(self):
-        """
-        Test updating of configuration.value for a specific key using
+        """ Test updating of configuration.value for a specific key using
+
             - create_category to create the category
             - get_category_item_value_entry to check category_value
             - set_category_item_value_entry to update category_value
+
         :assert:
             1. `default` and `value` in configuration.value are the same
             2. `value` in configuration.value gets updated, while `default` does not
@@ -240,9 +249,8 @@ class TestConfigurationManager:
         assert result == 'True'
 
     async def test_get_category_item(self):
-        """
-        Test that get_category_item returns all the data in configuration.
-        value for a specific category_name
+        """ Test that get_category_item returns all the data in configuration.
+
         :assert:
             Information in configuration.value match the category_values declared
 
@@ -261,11 +269,10 @@ class TestConfigurationManager:
         assert result['value'] == 'False'
 
     async def test_create_category_invalid_dict(self):
-        """
-        Test that create_category returns the expected error when category_value
-          is a 'string' rather than a JSON
+        """ Test that create_category returns the expected error when category_value is a 'string' rather than a JSON
+
         :assert:
-            Assert that TypeError gets returned when type is string
+            Assert that TypeError gets returned when type is not dict
         """
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='integer', category_description='integer type',
@@ -273,10 +280,10 @@ class TestConfigurationManager:
         assert "TypeError: category_val must be a dictionary" in str(error_exec)
 
     async def test_create_category_invalid_type(self):
-        """
-        Test that create_category returns the expected error when type is invalid
+        """ Test that create_category returns the expected error when type is invalid
+
         :assert:
-            Assert that TypeError gets returned when type is float
+            Assert that TypeError gets returned when type is not allowed e.g. float
         """
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='float', category_description='float type',
@@ -290,11 +297,14 @@ class TestConfigurationManager:
                 "'IPv6', 'X509 certificate', 'password', 'JSON']") in str(error_exec)
 
     async def test_create_category_case_sensitive_type(self):
-        """
-        Test that create_category returns the expected error when type is upper case
+        """ Test that create_category returns the expected error when type is upper case
+
         :assert:
-            Assert that TypeError gets returned when type is INTEGER
+            Assert that TypeError gets returned when type is uppercase e.g. INTEGER
         """
+        # TODO: should be case insensitive? EVEN for this SCREAMING_SNAKE_CASE makes more sense!
+        # e.g. X509_CERTIFICATE, IPV4 etc.
+
         with pytest.raises(ValueError) as error_exec:
             await create_category(category_name='INTEGER', category_description='INTEGER type',
                                   category_value={
@@ -307,9 +317,9 @@ class TestConfigurationManager:
                 "'IPv6', 'X509 certificate', 'password', 'JSON']") in str(error_exec)
 
     async def test_create_category_invalid_entry_value_for_type(self):
-        """
-        Test case where value is set to the actual "value" rather than the string of the value
-        :Assert:
+        """ Test the case where value is set to the actual "value" rather than the string of the value
+
+        :assert:
             Assert TypeError when type is set to bool rather than 'boolean'
         """
         with pytest.raises(TypeError) as error_exec:
@@ -323,9 +333,9 @@ class TestConfigurationManager:
                 "info and entry_name type") in str(error_exec)
 
     async def test_create_category_invalid_entry_value_for_default(self):
-        """
-        Test case where value is set to the actual "value" rather than the string of the value
-        :Assert:
+        """ Test the case where value is set to the actual value as per type instead of string of the value
+
+        :assert:
             Assert TypeError when default is set to False rather than 'False'
         """
         with pytest.raises(TypeError) as error_exec:
@@ -336,14 +346,15 @@ class TestConfigurationManager:
                                       'type': 'boolean',
                                       'default': False
                                   }})
-        assert ("TypeError: entry_val must be a string for item_name " +
+        assert ("TypeError: entry_val must be a string for item_name "
                 "info and entry_name default") in str(error_exec)
 
     async def test_create_category_invalid_entry_none_for_description(self):
-        """
-        Test case where value is set to the actual "value" rather than the string of the value
-        :Assert:
-            Assert TypeError when description is set to None rather than ''
+        """Test the case where value is set to None instead of string of the value
+
+        :assert:
+            Assert TypeError when description is set to None rather than  string
+            note: Empty string is allowed for description
         """
         with pytest.raises(TypeError) as error_exec:
             await create_category(category_name='boolean',
@@ -357,9 +368,8 @@ class TestConfigurationManager:
                 "info and entry_name description") in str(error_exec)
 
     async def test_create_category_missing_entry_for_type(self):
-        """
-        Test that create_category returns the expected error when
-        category_value entry_name is missing
+        """ Test that create_category returns the expected error when category_value entry_name type is missing
+
         :assert:
             Assert ValueError when type is missing
         """
@@ -372,9 +382,8 @@ class TestConfigurationManager:
         assert "ValueError: Missing entry_name type for item_name info" in str(error_exec)
 
     async def test_create_category_missing_entry_for_description(self):
-        """
-        Test that create_category returns the expected error when
-        category_value entry_name is missing
+        """ Test that create_category returns the expected error when category_value entry_name description is missing
+
         :assert:
             Assert ValueError when description is missing
         """
@@ -386,10 +395,10 @@ class TestConfigurationManager:
                                           'default': 'False'}})
         assert "ValueError: Missing entry_name description for item_name info" in str(error_exec)
 
-    async def test_create_category_invalid_entry_none_for_default(self):
+    async def test_create_category_missing_value_for_default(self):
         """
-        Test that create_category returns the expected error when
-        category_value entry_name is missing
+        Test that create_category returns the expected error when category_value entry_name default value is missing
+
         :assert:
             Assert ValueError when default is missing
         """
@@ -401,82 +410,28 @@ class TestConfigurationManager:
                                           'description': 'integer type with value False'}})
         assert "ValueError: Missing entry_name default for item_name info" in str(error_exec)
 
-    async def test_create_category_invalid_entry_none_for_description(self):
-        """
-        Test case where value is set to the actual "value" rather than the string of the value
-        :Assert:
-            Assert TypeError when description is set to None rather than ''
-        """
-        with pytest.raises(TypeError) as error_exec:
-            await create_category(category_name='boolean',
-                                  category_description='boolean type',
-                                  category_value={'info': {
-                                      'description': None,
-                                      'type': 'boolean',
-                                      'default': 'False'
-                                  }})
-        assert ("TypeError: entry_val must be a string for item_name " +
-                "info and entry_name description") in str(error_exec)
-
-    async def test_create_category_invalid_entry_none_for_type(self):
-        """
-        Test that TypeError is returned when entry_name is None
-        :Assert:
-            Assert TypeError when type is None
-        """
-        with pytest.raises(TypeError) as error_exec:
-            await create_category(category_name='boolean', category_description='boolean type',
-                                  category_value={'info': {
-                                      'description': 'boolean type with default False ',
-                                      'type': None,
-                                      'default': 'False'
-                                  }})
-        assert ("TypeError: entry_val must be a string for item_name " +
-                "info and entry_name type") in str(error_exec)
-
-    async def test_create_category_invalid_entry_none_for_default(self):
-        """
-        Test that TypeError is returned when entry_name is None
-        :Assert:
-            Assert TypeError when default is None
-        """
-        with pytest.raises(TypeError) as error_exec:
-            await create_category(category_name='boolean', category_description='boolean type',
-                                  category_value={'info': {
-                                      'description': 'boolean type with default False ',
-                                      'type': 'boolean',
-                                      'default': None
-                                  }})
-        assert ("TypeError: entry_val must be a string for item_name info " +
-                "and entry_name default") in str(error_exec)
-
+    @pytest.mark.xfail(reason="not yet implemented")
     async def test_get_all_category_names_error(self):
-        await get_all_category_names()
+        res = await get_all_category_names()
+        # TODO: assert empty list?
 
     @pytest.mark.xfail(reason="FOGL-552")
     async def test_set_category_item_value_error(self):
-        """
-        Test updating of configuration.value when category_name does not exist
+        """ Test update of configuration.value when category_name does not exist
+
         :assert:
             Nothing happens / returned
-        :expect:
+        :expected:
             FOGL-522: When updating category item value, when the category_name
             doesn't exist, an error should get returned
         """
-        select_value_stmt = sa.select([_configuration_tbl.c.value]).select_from(
-            _configuration_tbl).where(_configuration_tbl.c.key == 'boolean')
         await set_category_item_value_entry(category_name='boolean',
                                             item_name='info', new_value_entry='True')
 
-        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
-            async with engine.acquire() as conn:
-                async for result in conn.execute(select_value_stmt):
-                    assert result is None
-
     @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_item_value_entry_dne(self):
-        """
-        Test that None gets returned when either category_name and/or item_name don't exist
+        """ Test that None gets returned when either category_name and/or item_name don't exist
+
         :assert:
             1. Assert None is returned when item_name does not exist
             2. Assert None is returned when category_name does not exist
@@ -496,8 +451,8 @@ class TestConfigurationManager:
 
     @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_item_empty(self):
-        """
-        Test that gt_category_item when either category_name or item_name do not exist
+        """ Test that get_category_item when either category_name or item_name do not exist
+
         :assert:
             Assert result is None when category_name or item_name do not exist in configuration
         """
@@ -516,8 +471,8 @@ class TestConfigurationManager:
 
     @pytest.mark.xfail(reason="FOGL-577")
     async def test_get_category_all_items_dne(self):
-        """
-        Test get_category_all_items doesn't return anything if category_name doesn't exist
+        """ Test get_category_all_items doesn't return anything if category_name doesn't exist
+
         :assert:
             Assert None gets returned when category_name does not exist
         """
@@ -533,20 +488,19 @@ class TestConfigurationManager:
         assert result is None
 
     async def test_register_interest(self):
-        """
-        Test that when register_interest is called, _registered_interests gets updated
+        """ Test that when register_interest is called, _registered_interests gets updated
+
         :assert:
-            1. when index of keys list is 0, corresponding name is 'boolean'
-            2. the value for _register_interests['boolean'] is {'tests.callback'}
+           for (category_name='boolean', callback='tests.callback') the value for _register_interests['boolean'] is {'tests.callback'}
         """
         register_interest(category_name='boolean', callback='tests.callback')
         assert list(_registered_interests.keys())[0] == 'boolean'
         assert _registered_interests['boolean'] == {'tests.callback'}
 
     async def test_register_interest_category_name_none_error(self):
-        """
-        Test that error gets returned when category_name is None
-        :Assert:
+        """ Test that error gets returned when category_name is None
+
+        :assert:
             Assert error message when category_name is None
         """
         with pytest.raises(ValueError) as error_exec:
@@ -555,9 +509,9 @@ class TestConfigurationManager:
             str(error_exec))
 
     async def test_register_interest_callback_none_error(self):
-        """
-           Test that error gets returned when callback is None
-           :Assert:
+        """ Test that error gets returned when callback is None
+
+           :assert:
                Assert error message when callback is None
         """
         with pytest.raises(ValueError) as error_exec:
