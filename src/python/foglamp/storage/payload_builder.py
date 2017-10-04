@@ -206,8 +206,14 @@ class PayloadBuilder(object):
     @classmethod
     def OFFSET(cls, arg):
         if isinstance(arg, int):
-            cls.query_payload.update({"offset": arg})
+            try:
+                limit = cls.query_payload['limit']
+            except KeyError:
+                raise KeyError("LIMIT is required to set OFFSET to skip")
+            cls.query_payload.update({"skip": arg})
         return cls
+
+    SKIP = OFFSET
 
     @classmethod
     def ORDER_BY(cls, args):
@@ -299,10 +305,9 @@ if __name__ == "__main__":
 
     assert insert_payload == json.dumps(insert_test_data, sort_keys=True)
 
-    res = Storage().connect().insert_into_tbl("statistics_history", insert_payload)
+    res = Storage().insert_into_tbl("statistics_history", insert_payload)
     print(res)
     # assert res  "{'response': 'inserted'}"
-    Storage().disconnect()
 
     # Update
     update_payload = PayloadBuilder()\
@@ -327,9 +332,21 @@ if __name__ == "__main__":
 
     assert update_payload == json.dumps(update_test_data, sort_keys=True)
 
-    res = Storage().connect().update_tbl("statistics_history", update_payload)
+    res = Storage().update_tbl("statistics_history", update_payload)
     print(res)
     # assert res  "{'response': 'updated'}"
-    Storage().disconnect()
 
+    try:
+        offset = PayloadBuilder().SKIP(5).payload()
+        print(offset)
+    except Exception as ex:
+        print(str(ex))
 
+    limit = PayloadBuilder().LIMIT(2).payload()
+    print(limit)
+
+    limit_and_offset = PayloadBuilder().LIMIT(2).OFFSET(10).payload()
+    print(limit_and_offset)
+
+    limit_and_skip = PayloadBuilder().LIMIT(2).SKIP(12).payload()
+    print(limit_and_skip)
