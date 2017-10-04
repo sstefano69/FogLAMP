@@ -21,13 +21,13 @@ __version__ = "${VERSION}"
 pytestmark = pytest.mark.asyncio
 
 _CONNECTION_STRING = "dbname='foglamp'"
+_KEYS = ('boolean', 'integer', 'string', 'IPv4', 'IPv6', 'X509 cer', 'password', 'JSON')
 
 
 async def delete_from_configuration():
     """ Remove initial data from configuration table """
 
-    sql = sa.text("DELETE FROM configuration WHERE key IN "
-                  "('boolean', 'integer', 'string', 'IPv4', 'IPv6', 'X509 cer', 'password', 'JSON')")
+    sql = sa.text("DELETE FROM configuration WHERE key IN {}".format(_KEYS))
     async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
         async with engine.acquire() as conn:
             await conn.execute(sql)
@@ -141,8 +141,7 @@ class TestConfigurationManager:
                                   category_value=data[category_name]['category_value'],
                                   keep_original_items=True)
 
-        sql = sa.text("SELECT * FROM configuration WHERE key IN "
-                      "('boolean', 'integer', 'string', 'IPv4', 'IPv6', 'X509 cer', 'password', 'JSON')")
+        sql = sa.text("SELECT * FROM configuration WHERE key IN {}".format(_KEYS))
         async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
             async with engine.acquire() as conn:
                 result = await conn.execute(sql)
