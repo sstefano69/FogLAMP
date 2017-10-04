@@ -160,7 +160,7 @@ class TestScheduler:
         await self.drop_from_tasks()
 
     @pytest.mark.asyncio
-    async def test_get_tasks_offset(self):
+    async def test_get_tasks_offset1(self):
         """
         Verify number of tasks is equal to the total_rows - offest
         :assert:
@@ -172,8 +172,9 @@ class TestScheduler:
 
         for offset in (0, 1, 5, 10, 25, 50, 75, 100):
             tasks = await scheduler.get_tasks(offset=offset)
+            print(len(tasks))
             assert len(tasks) == 100 - offset
-        await  self.drop_from_tasks()
+        # await  self.drop_from_tasks()
 
     @pytest.mark.asyncio
     async def test_get_tasks_where(self):
