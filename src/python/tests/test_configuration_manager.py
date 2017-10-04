@@ -125,28 +125,39 @@ class TestConfigurationManager:
                                  'type': 'password',
                                  'default': ''}}}
         }
+
+        existing_records = 0
+
+        select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
+        async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
+            async with engine.acquire() as conn:
+                result = conn.execute(select_count_stmt)
+                async for r in result:
+                    existing_records = int(r[0])
+
         for category_name in data:
             await create_category(category_name=category_name,
                                   category_description=data[category_name]['category_description'],
                                   category_value=data[category_name]['category_value'],
                                   keep_original_items=True)
 
-        # assert 8 more records created, if 0 then will be 8 if from init already then init + 8
-        select_count_stmt = sa.select([sa.func.count()]).select_from(_configuration_tbl)
+        sql = sa.text("SELECT * FROM configuration WHERE key IN "
+                      "('boolean', 'integer', 'string', 'IPv4', 'IPv6', 'X509 cer', 'password', 'JSON')")
         async with aiopg.sa.create_engine(_CONNECTION_STRING) as engine:
             async with engine.acquire() as conn:
-                result = conn.execute(select_count_stmt)
-                async for r in result:
-                    assert int(r[0]) == len(data)
+                result = await conn.execute(sql)
+                assert 8 == result.rowcount
 
         categories = await get_all_category_names()
-        # assert 8 more records created, if 0 then will be 8 if from init already then init + 8
-        assert len(categories) == len(data)
+        assert len(categories) == existing_records + 8
 
         # only filter and test above 8 records
-        for category in categories:
-            key = category[0].strip()
-            assert data[key]['category_description'] == category[1]
+
+        for key in data:
+            # print(key)
+            assert key in [cat[0].strip() for cat in categories]
+            assert data[key]['category_description'] in [cat[1] for cat in categories]
+
             category_info = await get_category_all_items(category_name=key)
             assert data[key]['category_value']['info']['description'] == (
                 category_info['info']['description'])
