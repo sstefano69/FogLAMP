@@ -45,9 +45,10 @@ async def register(request):
         service_type = data.get('type', None)
         service_address = data.get('address', None)
         service_port = data.get('port', None)
+        service_service_port = data.get('servicePort', None)
         service_protocol = data.get('protocol', 'http')
 
-        if not (service_name.strip() or service_type.strip() or service_address.strip() or service_port.strip() or not service_port.isdigit()):
+        if not (service_name.strip() or service_type.strip() or service_address.strip() or service_port.strip() or not service_port.isdigit() or service_service_port.strip() or not service_service_port.isdigit()):
             raise web.HTTPBadRequest(reason='One or more values for type/name/address/port missing')
 
         if not isinstance(service_port, int):
@@ -55,7 +56,8 @@ async def register(request):
 
         try:
             registered_service_id = Service.Instances.register(service_name,service_type,
-                                                               service_address, service_port, service_protocol)
+                                                               service_address, service_port,
+                                                               service_service_port, service_protocol)
         except Service.AlreadyExistsWithTheSameName:
             raise web.HTTPBadRequest(reason='A Service with the same name already exists')
         except Service.AlreadyExistsWithTheSameAddressAndPort:
@@ -133,7 +135,8 @@ async def get_service(request):
             "type": service._type,
             "address": service._address,
             "port": service._port,
-            "protocol": service._protocol
+            "protocol": service._protocol,
+            "servicePort": service._service_port
         })
     return web.json_response({"services": services})
 

@@ -23,22 +23,23 @@ class Service(object):
         Storage = 1
         Device = 2
 
-    __slots__ = ['_id', '_name', '_type', '_protocol', '_address', '_port']
+    __slots__ = ['_id', '_name', '_type', '_protocol', '_address', '_port', '_service_port']
 
-    def __init__(self, s_id, s_name, s_type, s_protocol, s_address, s_port):
+    def __init__(self, s_id, s_name, s_type, s_protocol, s_address, s_port, s_service_port):
         self._id = s_id
         self._name = s_name
         self._type = self.valid_type(s_type)  # check with Service.Type, if not a valid type raise error
         self._protocol = s_protocol
         self._address = s_address
         self._port = int(s_port)
+        self._service_port = int(s_service_port)
         # TODO: MUST
         # well, reserve the core api PORT
         # or keep core service registered as default
 
     def __repr__(self):
         template = 'service instance id={s._id}: <{s._name}, type={s._type}, protocol={s._protocol}, ' \
-                   'address={s._address}, port={s._port}>'
+                   'address={s._address}, port={s._port} servicePort={s._service_port}>'
         return template.format(s=self)
 
     def __str__(self):
@@ -75,7 +76,7 @@ class Service(object):
         _logger = logger.setup(__name__, level=20)
 
         @classmethod
-        def register(cls, name, s_type, address, port, protocol='http'):
+        def register(cls, name, s_type, address, port, service_port, protocol='http'):
             """ registers the service instance
            
             :param name: name of the service
@@ -101,7 +102,7 @@ class Service(object):
                 raise Service.ReservedPortError
 
             service_id = str(uuid.uuid4())
-            registered_service = Service(service_id, name, s_type, protocol, address, port)
+            registered_service = Service(service_id, name, s_type, protocol, address, port, service_port)
             cls._registry.append(registered_service)
             cls._logger.info("Registered {}".format(str(registered_service)))
             return service_id
