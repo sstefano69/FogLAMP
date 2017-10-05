@@ -8,7 +8,9 @@
 
 import asyncio
 import signal
+import time
 
+import foglamp.device.exceptions as exceptions
 from foglamp import configuration_manager
 from foglamp import logger
 from foglamp.device.ingest import Ingest
@@ -19,10 +21,34 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
+_DEFAULT_CONFIG = {
+    'plugin': {
+        'description': 'Python module name of the plugin to load',
+        'type': 'string',
+        'default': 'CoAP'
+    }
+}
+
 _LOGGER = logger.setup(__name__)
+
+_PLUGIN_MODULE_PATH = "foglamp.device."
+_PLUGIN_MODULE_SUFFIX = "_device"
+
+_MESSAGES_LIST = {
+
+    # Information messages
+    "i000000": "",
+
+    # Warning / Error messages
+    "e000000": "generic error.",
+    "e000001": "cannot proceed the execution, only the type -device- is allowed - plugin name |{0}| plugin type |{1}|",
+}
+""" Messages used for Information, Warning and Error notice """
 
 
 class Server:
+    """" Implements the Device Service functionalities """
+
     _plugin_name = None  # type:str
     """"The name of the plugin"""
     
@@ -63,18 +89,22 @@ class Server:
         try:
             # TODO: Category name column is allows only 10 characters.
             # This needs to be increased
+
+            # Configuration handling - initial configuration
             category = plugin
 
-            config = {}
+            config = _DEFAULT_CONFIG
+            config['plugin']['default'] = plugin.lower()
 
             await configuration_manager.create_category(category, config,
                                                         '{} Device'.format(plugin), True)
 
-            try:
-                plugin_module = config['plugin']
-            except KeyError:
-                # TODO: Delete me
-                plugin_module = 'foglamp.device.coap_device'
+            config = await configuration_manager.get_category_all_items(category)
+
+            plugin_module = '{path}{name}{suffix}'.format(
+                                                            path=_PLUGIN_MODULE_PATH,
+                                                            name=config['plugin']['value'],
+                                                            suffix=_PLUGIN_MODULE_SUFFIX)
 
             try:
                 cls._plugin = __import__(plugin_module, fromlist=[''])
@@ -83,8 +113,11 @@ class Server:
                                                                                plugin)
                 raise
 
-            default_config = cls._plugin.plugin_info()['config']
+            # Plugin initialization
+            plugin_info = cls._plugin.plugin_info()
+            default_config = plugin_info['config']
 
+            # Configuration handling - updates configuration using information specific to the plugin
             await configuration_manager.create_category(category, default_config,
                                                         '{} Device'.format(plugin))
 
@@ -92,16 +125,68 @@ class Server:
 
             # TODO: Register for config changes
 
-            cls._plugin_data = cls._plugin.plugin_init(config)
-            cls._plugin.plugin_run(cls._plugin_data)
+            # Ensures the plugin type is the correct one - 'device'
+            if plugin_info['type'] != 'device':
 
-            await Ingest.start()
+                message = _MESSAGES_LIST['e000001'].format(plugin, plugin_info['type'])
+                _LOGGER.error(message)
+
+                raise exceptions.InvalidPluginTypeError()
+
+            cls._plugin_data = cls._plugin.plugin_init(config)
+
+            # Executes the requested plugin type
+            if plugin_info['mode'] == 'async':
+                await  cls._exec_plugin_async(config)
+
+            elif plugin_info['mode'] == 'poll':
+                asyncio.ensure_future(cls._exec_plugin_poll(config))
+                asyncio.ensure_future(cls._exec_maintenance(config))
+
         except Exception:
             if error is None:
                 error = 'Failed to initialize plugin {}'.format(plugin)
             _LOGGER.exception(error)
             print(error)
             asyncio.ensure_future(cls._stop(loop))
+
+    @classmethod
+    async def _exec_plugin_async(cls, config) -> None:
+        """ Executes async type plugin  """
+
+        cls._plugin.plugin_run(cls._plugin_data)
+
+        await Ingest.start()
+
+    @classmethod
+    async def _exec_plugin_poll(cls, config) -> None:
+        """ Executes poll type plugin """
+
+        await Ingest.start()
+
+        while True:
+            data = await cls._plugin.plugin_poll(cls._plugin_data)
+
+            await Ingest.add_readings(asset=data['asset'],
+                                      timestamp=data['timestamp'],
+                                      key=data['key'],
+                                      readings=data['readings'])
+
+            # pollInterval is expressed in milliseconds
+            sleep_seconds = int(config['pollInterval']['value']) / 1000.0
+            await asyncio.sleep(sleep_seconds)
+
+    @classmethod
+    async def _exec_maintenance(cls, config) -> None:
+        """ _exec_maintenance
+
+        .. todo::
+            * to be implemented
+        """
+
+        while True:
+            _LOGGER.debug("_exec_maintenance")
+            await asyncio.sleep(5)
 
     @classmethod
     def start(cls, plugin):
