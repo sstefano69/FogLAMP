@@ -1,12 +1,10 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # FOGLAMP_BEGIN
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
 
-""" Device service exceptions module contains Exception subclasses
-"""
+""" Device service exceptions module """
 
 __author__ = "Stefano Simonelli"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"

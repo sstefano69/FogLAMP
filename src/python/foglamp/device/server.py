@@ -4,11 +4,10 @@
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
 
-"""FogLAMP device server"""
+""" FogLAMP device server """
 
 import asyncio
 import signal
-import time
 
 import foglamp.device.exceptions as exceptions
 from foglamp import configuration_manager
@@ -29,8 +28,6 @@ _DEFAULT_CONFIG = {
     }
 }
 
-_LOGGER = logger.setup(__name__)
-
 _PLUGIN_MODULE_PATH = "foglamp.device."
 _PLUGIN_MODULE_SUFFIX = "_device"
 
@@ -45,9 +42,11 @@ _MESSAGES_LIST = {
 }
 """ Messages used for Information, Warning and Error notice """
 
+_LOGGER = logger.setup(__name__)
+
 
 class Server:
-    """" Implements the Device Service functionalities """
+    """" Implements the Device Service """
 
     _plugin_name = None  # type:str
     """"The name of the plugin"""
@@ -82,7 +81,7 @@ class Server:
         loop.stop()
 
     @classmethod
-    async def _start(cls, plugin: str, loop)->None:
+    async def _start(cls, plugin: str, loop) -> None:
         error = None
         cls.plugin_name = plugin
 
@@ -117,7 +116,7 @@ class Server:
             plugin_info = cls._plugin.plugin_info()
             default_config = plugin_info['config']
 
-            # Configuration handling - updates configuration using information specific to the plugin
+            # Configuration handling - updates the configuration using information specific to the plugin
             await configuration_manager.create_category(category, default_config,
                                                         '{} Device'.format(plugin))
 
@@ -141,7 +140,6 @@ class Server:
 
             elif plugin_info['mode'] == 'poll':
                 asyncio.ensure_future(cls._exec_plugin_poll(config))
-                asyncio.ensure_future(cls._exec_maintenance(config))
 
         except Exception:
             if error is None:
@@ -177,18 +175,6 @@ class Server:
             await asyncio.sleep(sleep_seconds)
 
     @classmethod
-    async def _exec_maintenance(cls, config) -> None:
-        """ _exec_maintenance
-
-        .. todo::
-            * to be implemented
-        """
-
-        while True:
-            _LOGGER.debug("_exec_maintenance")
-            await asyncio.sleep(5)
-
-    @classmethod
     def start(cls, plugin):
         """Starts the device server
 
@@ -207,4 +193,3 @@ class Server:
 
         asyncio.ensure_future(cls._start(plugin, loop))
         loop.run_forever()
-

@@ -4,7 +4,7 @@
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
 
-"""CoAP handler for sensor readings"""
+""" CoAP handler for sensor readings """
 
 import asyncio
 import json
@@ -43,12 +43,20 @@ _DEFAULT_CONFIG = {
 
 
 def plugin_info():
-    return {'name': 'CoAP Server', 'version': '1.0', 'mode': 'async', 'type': 'device',
-            'interface': '1.0', 'config': _DEFAULT_CONFIG}
+    """ Returns information about the plugin."""
+
+    return {
+            'name': 'CoAP Server',
+            'version': '1.0',
+            'mode': 'async',
+            'type': 'device',
+            'interface': '1.0',
+            'config': _DEFAULT_CONFIG
+    }
 
 
 def plugin_init(config):
-    """Registers CoAP handler to accept sensor readings"""
+    """ Registers CoAP handler to accept sensor readings """
 
     uri = config['uri']['value']
     port = config['port']['value']
@@ -66,19 +74,27 @@ def plugin_init(config):
 
 
 def plugin_run(data):
+    """ plugin_run template for the 'async' type plugin """
     pass
 
 
 def plugin_reconfigure(config):
+    """"
+        Called when the configuration of the plugin is changed during the operation of the device service.
+        A new configuration category will be passed.
+    """
     pass
 
 
 def plugin_shutdown(data):
+    """
+        Called prior to the device service being shut down.
+    """
     pass
 
 
 class CoAPIngest(aiocoap.resource.Resource):
-    """Handles incoming sensor readings from CoAP"""
+    """ Handles incoming sensor readings from CoAP """
 
     @staticmethod
     async def render_post(request):
@@ -153,4 +169,3 @@ class CoAPIngest(aiocoap.resource.Resource):
             Ingest.increment_discarded_readings()
 
         return aiocoap.Message(payload=message.encode('utf-8'), code=code)
-

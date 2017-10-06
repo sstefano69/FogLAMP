@@ -4,8 +4,7 @@
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
 
-# FIXME:
-""" Template for 'poll' type plugin """
+""" Template module for 'poll' type plugin """
 
 from datetime import datetime, timezone
 
@@ -21,9 +20,6 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_LOGGER = logger.setup(__name__)
-
-# FIXME:
 _DEFAULT_CONFIG = {
     'plugin': {
          'description': 'Python module name of the plugin to load',
@@ -38,9 +34,14 @@ _DEFAULT_CONFIG = {
 
 }
 
+_LOGGER = logger.setup(__name__)
+
 
 def plugin_info():
-    """ Template for the plugin_info function for the 'poll' type plugin """
+    """
+        Returns information about the plugin.
+        plugin_info template for the 'poll' type plugin
+    """
 
     return {
             'name': 'Poll plugin',
@@ -52,16 +53,19 @@ def plugin_info():
     }
 
 
-# noinspection PyUnusedLocal
 def plugin_init(config):
-    """ Template for the plugin_init function for the 'poll' type plugin """
-    
-    return {}
+    """
+        Initialise the plugin.
+        plugin_init template for the 'poll' type plugin
+    """
+
+    handler = {}
+
+    return handler
 
 
-# noinspection PyUnusedLocal
 async def plugin_poll(handler):
-    """ Template for the plugin_poll function for the 'poll' type plugin """
+    """ plugin_poll template for the 'poll' type plugin """
 
     time_stamp = datetime.now(tz=timezone.utc)
 
@@ -79,18 +83,20 @@ async def plugin_poll(handler):
     return data
 
 
-def plugin_run():
-    """ Template for the plugin_run function for the 'poll' type plugin """
-    pass
+def plugin_reconfigure(handler, config):
+    """
+        Called when the configuration of the plugin is changed during the operation of the device service.
+        A new configuration category will be passed.
+        plugin_reconfigure template for the 'poll' type plugin
+    """
+
+    new_handler = {}
+
+    return new_handler
 
 
-def plugin_reconfigure(config):
-    """ Template for the plugin_reconfigure function for the 'poll' type plugin """
-
-    return config
-
-
-def plugin_shutdown(data):
-    """ Template for the plugin_shutdown function for the 'poll' type plugin """
-
-    return data
+def plugin_shutdown(handler):
+    """
+        Called prior to the device service being shut down.
+        plugin_shutdown template for the 'poll' type plugin
+    """
