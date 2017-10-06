@@ -152,7 +152,7 @@ class Server:
     async def _exec_plugin_async(cls, config) -> None:
         """ Executes async type plugin  """
 
-        cls._plugin.plugin_run(cls._plugin_data)
+        cls._plugin.plugin_start(cls._plugin_data)
 
         await Ingest.start()
 
@@ -173,6 +173,7 @@ class Server:
             # pollInterval is expressed in milliseconds
             sleep_seconds = int(config['pollInterval']['value']) / 1000.0
             await asyncio.sleep(sleep_seconds)
+
 
     @classmethod
     def start(cls, plugin):

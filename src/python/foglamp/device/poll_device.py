@@ -64,7 +64,7 @@ def plugin_init(config):
     Raises:
     """
 
-    handle = {}
+    handle = config
 
     return handle
 
@@ -99,14 +99,14 @@ async def plugin_poll(handle):
     return data
 
 
-def plugin_reconfigure(handle, config):
+def plugin_reconfigure(handle, new_config):
     """ Reconfigures the plugin, it should be called when the configuration of the plugin is changed during the
         operation of the device service.
         The new configuration category should be passed.
 
     Args:
         handle: handle returned by the plugin initialisation call
-        config: JSON object representing the new configuration category for the category
+        new_config: JSON object representing the new configuration category for the category
     Returns:
     Raises:
     """

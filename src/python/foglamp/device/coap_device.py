@@ -43,7 +43,13 @@ _DEFAULT_CONFIG = {
 
 
 def plugin_info():
-    """ Returns information about the plugin."""
+    """ Returns information about the plugin.
+
+    Args:
+    Returns:
+        dict: plugin information
+    Raises:
+    """
 
     return {
             'name': 'CoAP Server',
@@ -56,10 +62,32 @@ def plugin_info():
 
 
 def plugin_init(config):
-    """ Registers CoAP handler to accept sensor readings """
+    """ Registers CoAP handler to accept sensor readings
 
-    uri = config['uri']['value']
-    port = config['port']['value']
+    Args:
+        config: JSON configuration document for the device configuration category
+    Returns:
+        handle: JSON object to be used in future calls to the plugin
+    Raises:
+    """
+
+    handle = config
+
+    return handle
+
+
+def plugin_start(handle):
+    """ Starts the device ingress process.
+        Used only for device plugins that support async IO.
+
+    Args:
+        handle: handle returned by the plugin initialisation call
+    Returns:
+    Raises:
+    """
+
+    uri = handle['uri']['value']
+    port = handle['port']['value']
 
     root = aiocoap.resource.Site()
 
@@ -70,27 +98,32 @@ def plugin_init(config):
 
     asyncio.ensure_future(aiocoap.Context.create_server_context(root, bind=('::', int(port))))
 
-    return {}
 
+def plugin_reconfigure(handle, new_config):
+    """ Reconfigures the plugin, it should be called when the configuration of the plugin is changed during the
+        operation of the device service.
+        The new configuration category should be passed.
 
-def plugin_run(data):
-    """ plugin_run template for the 'async' type plugin """
-    pass
-
-
-def plugin_reconfigure(config):
-    """"
-        Called when the configuration of the plugin is changed during the operation of the device service.
-        A new configuration category will be passed.
+    Args:
+        handle: handle returned by the plugin initialisation call
+        new_config: JSON object representing the new configuration category for the category
+    Returns:
+    Raises:
     """
-    pass
+
+    new_handle = {}
+
+    return new_handle
 
 
-def plugin_shutdown(data):
+def plugin_shutdown(handle):
+    """ Shutdowns the plugin doing required cleanup, to be called prior to the device service being shut down.
+
+    Args:
+        handle: handle returned by the plugin initialisation call
+    Returns:
+    Raises:
     """
-        Called prior to the device service being shut down.
-    """
-    pass
 
 
 class CoAPIngest(aiocoap.resource.Resource):
