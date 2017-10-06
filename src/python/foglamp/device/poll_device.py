@@ -7,13 +7,11 @@
 """ Template module for 'poll' type plugin """
 
 from datetime import datetime, timezone
-
 import random
 import uuid
 
-import foglamp.device.exceptions as exceptions
-
 from foglamp import logger
+import foglamp.device.exceptions as exceptions
 
 __author__ = "Stefano Simonelli"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -38,34 +36,52 @@ _LOGGER = logger.setup(__name__)
 
 
 def plugin_info():
-    """
-        Returns information about the plugin.
-        plugin_info template for the 'poll' type plugin
+    """ Returns information about the plugin.
+
+    Args:
+    Returns:
+        dict: plugin information
+    Raises:
     """
 
     return {
-            'name': 'Poll plugin',
-            'version': '1.0',
-            'mode': 'poll', ''
-            'type': 'device',
-            'interface': '1.0',
-            'config': _DEFAULT_CONFIG
+        'name': 'Poll plugin',
+        'version': '1.0',
+        'mode': 'poll', ''
+        'type': 'device',
+        'interface': '1.0',
+        'config': _DEFAULT_CONFIG
     }
 
 
 def plugin_init(config):
+    """ Initialise the plugin.
+
+    Args:
+        config: JSON configuration document for the device configuration category
+    Returns:
+        handle: JSON object to be used in future calls to the plugin
+    Raises:
     """
-        Initialise the plugin.
-        plugin_init template for the 'poll' type plugin
+
+    handle = {}
+
+    return handle
+
+
+async def plugin_poll(handle):
+    """ Extracts data from the sensor and returns it in a JSON document as a Python dict.
+
+    Available for poll mode only.
+
+    Args:
+        handle: handle returned by the plugin initialisation call
+    Returns:
+        returns a sensor reading in a JSON document, as a Python dict, if it is available
+        None - If no reading is available
+    Raises:
+        DataRetrievalError
     """
-
-    handler = {}
-
-    return handler
-
-
-async def plugin_poll(handler):
-    """ plugin_poll template for the 'poll' type plugin """
 
     time_stamp = datetime.now(tz=timezone.utc)
 
@@ -83,20 +99,28 @@ async def plugin_poll(handler):
     return data
 
 
-def plugin_reconfigure(handler, config):
+def plugin_reconfigure(handle, config):
+    """ Reconfigures the plugin, it should be called when the configuration of the plugin is changed during the
+        operation of the device service.
+        The new configuration category should be passed.
+
+    Args:
+        handle: handle returned by the plugin initialisation call
+        config: JSON object representing the new configuration category for the category
+    Returns:
+    Raises:
     """
-        Called when the configuration of the plugin is changed during the operation of the device service.
-        A new configuration category will be passed.
-        plugin_reconfigure template for the 'poll' type plugin
-    """
 
-    new_handler = {}
+    new_handle = {}
 
-    return new_handler
+    return new_handle
 
 
-def plugin_shutdown(handler):
-    """
-        Called prior to the device service being shut down.
-        plugin_shutdown template for the 'poll' type plugin
+def plugin_shutdown(handle):
+    """ Shutdowns the plugin doing required cleanup, to be called prior to the device service being shut down.
+
+    Args:
+        handle: handle returned by the plugin initialisation call
+    Returns:
+    Raises:
     """
