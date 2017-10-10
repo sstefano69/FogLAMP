@@ -7,7 +7,11 @@
 """Service Registry Rest API support"""
 
 import time
+
+import requests
 from aiohttp import web
+
+from foglamp import logger
 from foglamp.core.service_registry.instance import Service
 
 __author__ = "Amarendra Kumar Sinha, Praveen Garg"
@@ -26,6 +30,36 @@ _help = """
     -----------------------------------------------------------------------------------
 """
 
+_LOGGER = logger.setup(__name__)  # logging.Logger
+
+def check_service_availibility(management_api_url):
+    """ ping service """
+    r = requests.get(management_api_url+'/foglamp/service/ping')
+    # TODO: log error with message if status is 4xx or 5xx
+    if r.status_code in range(400, 500):
+        _LOGGER.error("Client error code: %d", r.status_code)
+        raise RuntimeError("Client error code: {}".format(r.status_code))
+    if r.status_code in range(500, 600):
+        _LOGGER.error("Server error code: %d", r.status_code)
+        raise RuntimeError("Server error code: {}".format(r.status_code))
+
+    res = dict(r.json())
+    return res
+
+
+def check_shutdown(management_api_url):
+    """ stop service """
+    r = requests.get(management_api_url+'/foglamp/service/shutdown')
+    # TODO: log error with message if status is 4xx or 5xx
+    if r.status_code in range(400, 500):
+        _LOGGER.error("Client error code: %d", r.status_code)
+        raise RuntimeError("Client error code: {}".format(r.status_code))
+    if r.status_code in range(500, 600):
+        _LOGGER.error("Server error code: %d", r.status_code)
+        raise RuntimeError("Server error code: {}".format(r.status_code))
+
+    res = dict(r.json())
+    return res
 
 async def ping():
     """ health check
