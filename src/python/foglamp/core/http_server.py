@@ -4,7 +4,8 @@ from aiohttp import web
 
 class AppWrapper:
 
-    def __init__(self, aioapp, port, loop):
+    def __init__(self, aioapp, host, port, loop):
+        self.host = host
         self.port = port
         self.aioapp = aioapp
         self.loop = loop
@@ -17,7 +18,7 @@ class AppWrapper:
 
         server_creations, self.uris = web._make_server_creators(
             handler, loop=self.loop, ssl_context=None,
-            host=None, port=self.port, path=None, sock=None,
+            host=self.host, port=self.port, path=None, sock=None,
             backlog=128)
 
         self.servers = self.loop.run_until_complete(
@@ -51,10 +52,10 @@ class MultiApp:
         else:
             self.loop = loop
 
-    def configure_app(self, app, port):
+    def configure_app(self, app, host, port):
         app._set_loop(self.loop)
         self._apps.append(
-            AppWrapper(app, port, self.loop)
+            AppWrapper(app, host, port, self.loop)
         )
 
     def run_all(self):

@@ -16,13 +16,14 @@ from foglamp.core import routes
 from foglamp.core import middleware
 from foglamp.core.scheduler import Scheduler
 from foglamp.core.http_server import MultiApp
+from foglamp.core.service_registry.instance import Service
 
 __author__ = "Praveen Garg, Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_LOGGER = logger.setup(__name__)  # logging.Logger
+_logger = logger.setup(__name__)
 
 
 class Server:
@@ -60,31 +61,47 @@ class Server:
 
     @classmethod
     def _start_storage(cls):
-        print("_start_storage")
         try:
             # fix the directory for storage
-            # subprocess.Popen(["./storage"], cwd=r"/home/foglamp/Downloads/store/1010")
-            subprocess.call('./storage', cwd=r"/home/foglamp/Downloads/store/1010")
+            STORAGE_DIR = r"/home/foglamp/Downloads/store/1010"
+            subprocess.call('./storage', cwd=STORAGE_DIR)
         except Exception as ex:
-            # TODO: log this execption, remove print
-            print(str(ex))
+            _logger.exception(str(ex))
 
-        #TODO: add shutdown in stop
+        # TODO: add shutdown in stop
 
     @classmethod
     def _start_core(cls):
-        print("_start_core")
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
         # web.run_app(cls._make_core_app(), host='0.0.0.0', port=8082)
-        ma = MultiApp()
-        # TODO: make these dynamic
-        core_mgt_port = 8082
-        svc_port = 8081
-        # add to service instance with core_mgt port and service_port
-        ma.configure_app(cls._make_core_app(), port=core_mgt_port)
-        ma.configure_app(cls._make_app(), port=svc_port)
 
+        # TODO: make management port dynamic?!
+        host_address = "localhost"  # fix?
+        core_mgt_port = 8082
+
+        ma = MultiApp()
+        ma.configure_app(cls._make_core_app(), host=host_address, port=core_mgt_port)
+        service_port = cls.request_available_port()
+        ma.configure_app(cls._make_app(), host=host_address, port=service_port)
+        # TODO: allow config / env var to set protocol
+        cls.register_core(host_address, service_port, core_mgt_port)
         ma.run_all()
+
+    @classmethod
+    def register_core(cls, host, service_port, core_mgt_port):
+        core_service_id = Service.Instances.register(name="FogLAMP Core", s_type="Core", address=host,
+                                                     port=service_port, management_port=core_mgt_port)
+
+        return core_service_id
+
+    @classmethod
+    def request_available_port(cls, host='localhost'):
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((host, 0))
+        addr, port = s.getsockname()
+        s.close()
+        return port
 
     @classmethod
     def start(cls):
@@ -101,11 +118,16 @@ class Server:
                 lambda: asyncio.ensure_future(cls._stop(loop)))
 
         cls._start_storage()
-        # change the order! it works because storage start and registration takes time
-        cls._start_core()
+        #
+        # Fix the order! it works because storage start and registration takes time
+
         # start scheduler
         # The scheduler must start first because the REST API interacts with it
         loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
+        cls._start_core()
+
+        #
+        # see http://0.0.0.0:8082/foglamp/service for registered services
 
     @classmethod
     async def _stop(cls, loop):
@@ -119,7 +141,7 @@ class Server:
                 await cls.scheduler.stop()
                 cls.scheduler = None
             except TimeoutError:
-                _LOGGER.exception('Unable to stop the scheduler')
+                _logger.exception('Unable to stop the scheduler')
                 return
 
         # Cancel asyncio tasks
