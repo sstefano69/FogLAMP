@@ -31,8 +31,8 @@ __version__ = "${VERSION}"
 
 _LOGGER = logger.setup(__name__)  # logging.Logger
 
-_FOGLAMP_ROOT = os.getenv('FOGLAMP_ROOT', '/home/asinha/Development/FogLAMP')
-_STORAGE_PATH = '.' #os.path.expanduser(_FOGLAMP_ROOT+'/services/storage')
+_FOGLAMP_ROOT = os.getenv('FOGLAMP_ROOT', '/home/a/Development/FogLAMP')
+_STORAGE_PATH = os.path.expanduser(_FOGLAMP_ROOT+'/services/storage/')
 
 _FOGLAMP_PID_PATH =  os.getenv('FOGLAMP_PID_PATH', os.path.expanduser('~/var/run/foglamp.pid'))
 _MANAGEMENT_PID_PATH = os.getenv('MANAGEMENT_PID_PATH', os.path.expanduser('~/var/run/management.pid'))
@@ -177,7 +177,7 @@ class Server:
             print('Management API started on http://{}:{}'.format(address1, cls._MANAGEMENT_API_PORT))
 
             handler2 = cls._make_app().make_handler()
-            coroutine2 = loop.create_server(handler2, '0.0.0.0', 8082)
+            coroutine2 = loop.create_server(handler2, '0.0.0.0', cls._RESTAPI_PORT)
             server2 = loop.run_until_complete(coroutine2)
             address2, port2 = server2.sockets[0].getsockname()
             print('Rest Server started on http://{}:{}'.format(address2, port2))
@@ -267,8 +267,8 @@ class Server:
         print("Starting Storage Services")
         try:
             # setproctitle.setproctitle('storage')
-            with subprocess.Popen([_STORAGE_PATH + '/storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
-                                   '--address=localhost']) as proc:
+            with subprocess.Popen([_STORAGE_PATH + 'storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
+                                   '--address=localhost'], cwd=_STORAGE_PATH) as proc:
                 pass
         except OSError as e:
             raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
@@ -375,9 +375,13 @@ class Server:
         await cls.scheduler.start()
 
     @classmethod
-    def _start(cls, loop):
+    def _start(cls):
         """Starts the server"""
         setproctitle.setproctitle('foglamp')
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop = asyncio.get_event_loop()
 
         # Register signal handlers
         # Registering SIGTERM creates an error at shutdown. See
@@ -395,12 +399,7 @@ class Server:
         try:
             cls._start_management_api()
             cls._start_storage()
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop = asyncio.get_event_loop()
-
-            cls._start(loop)
+            cls._start()
         except Exception as e:
             sys.stderr.write('Error: '+format(str(e)) + "\n");
             sys.exit(1)
