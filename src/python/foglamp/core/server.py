@@ -65,7 +65,13 @@ class Server:
         await cls.scheduler.start()
 
     @classmethod
-    def _start_storage(cls, host, m_port):
+    async def start_storage(cls, loop, host, m_port):
+        loop.call_soon(cls._start_storage(host, m_port))
+
+    @staticmethod
+    def _start_storage(host, m_port):
+        print("called _start_storage")
+
         try:
             cmd_with_args = ['./storage', '--address={}'.format(host),
                              '--port={}'.format(m_port)]
@@ -75,6 +81,7 @@ class Server:
 
     @classmethod
     def _start_core(cls, host, management_port):
+        print("called _start_core")
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
         # web.run_app(cls._make_core_app(), host='0.0.0.0', port=8082)
 
@@ -126,31 +133,32 @@ class Server:
         host_address = "localhost"  # fix?!
         core_mgt_port = 8082
 
-        # storage can not use the same port as core api will for mgt port
-        cls._start_storage(host_address, core_mgt_port)
-        #
-        # Fix the order! it works because storage start and registration takes time
-
         # start scheduler
         # The scheduler must start first because the REST API interacts with it
         loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
 
-        cls._start_core(host=host_address, management_port=core_mgt_port)
+        loop.create_task(cls.start_storage(loop, host_address, core_mgt_port))
+        # loop.call_soon(asyncio.ensure_future(cls._start_storage(host_address, core_mgt_port)))
 
+        cls._start_core(host=host_address, management_port=core_mgt_port)
         #
         # see http://0.0.0.0:8082/foglamp/service for registered services
 
-    @classmethod
-    async def _stop_storage(cls):
+    @staticmethod
+    def stop_storage():
         # TODO: make client call to service mgt API to ask to shutdown storage
-
-        pass
+        try:
+            from foglamp.storage.storage import Storage
+            Storage().shutdown()
+        except Exception as ex:
+            _logger.exception(str(ex))
 
     @classmethod
     async def _stop_core(cls):
-        # shut down aiohttp apps
+        # stop aiohttp (shutdown apps)
         pass
 
+    # I doubt! this has ever been called?
     @classmethod
     async def _stop(cls, loop):
         """Attempts to stop the server
@@ -170,10 +178,4 @@ class Server:
         for task in asyncio.Task.all_tasks():
             task.cancel()
 
-        # ^^ should be moved to _stop_scheduler?
-
-        await cls._stop_storage()
-        await cls._stop_core()
-
-        # stop aiohttp (shutdown apps) before loop? _stop_core()
         loop.stop()

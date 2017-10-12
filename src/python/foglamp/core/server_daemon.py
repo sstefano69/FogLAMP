@@ -95,6 +95,8 @@ class Daemon(object):
 
         # TODO: FOGL-274 Stopping is hard.
 
+        Server.stop_storage()
+
         if not pid:
             pid = cls.get_pid()
 

@@ -1623,8 +1623,37 @@ class Scheduler(object):
         self._start_time = self.current_time if self.current_time else time.time()
 
         # Hard-code storage server:
-        # wait self._start_startup_task(self._schedules['storage'])
-        # Then wait for it to start.
+
+        # wanna do this?
+
+        # register storage as command?
+
+        # cd to x dir will be hard?
+
+        # cmd_with_args = ["./storage", '--address={}'.format("localhost"),
+        #                  '--port={}'.format(8082)]
+        # self._process_scripts['storage'] = cmd_with_args
+        #
+        # schedule_id = uuid.uuid4()
+        #
+        # schedule = self._ScheduleRow(
+        #     id=schedule_id,
+        #     name="storage server",
+        #     type=Schedule.Type.STARTUP,
+        #     day=None,
+        #     time=None,
+        #     repeat=None,
+        #     repeat_seconds=None,
+        #     exclusive=True,
+        #     process_name="storage")
+        #
+        # self._schedules[schedule_id] = schedule
+        # schedule_execution = self._ScheduleExecution()
+        # self._schedule_executions[schedule_id] = schedule_execution
+        #
+        # await self._start_task(schedule)
+        #
+        # poll for ping? to go forward
 
         await self._read_config()
         await self._mark_tasks_interrupted()
