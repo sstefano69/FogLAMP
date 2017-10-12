@@ -103,7 +103,7 @@ class Storage(AbstractStorage):
         return json.loads(res)
 
     # TODO: remove me, and allow this call in service registry API
-    def check_shutdown(self):
+    def shutdown(self):
         """ stop Storage service """
 
         conn = http.client.HTTPConnection(self.management_api_url)

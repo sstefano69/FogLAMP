@@ -6,6 +6,7 @@
 
 """Core server module"""
 
+import os
 import signal
 import asyncio
 from aiohttp import web
@@ -24,6 +25,10 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 _logger = logger.setup(__name__)
+
+# TODO: FIXME: the ROOT directory
+_FOGLAMP_ROOT = '/home/foglamp/foglamp/FogLAMP'
+_STORAGE_DIR = os.path.expanduser(_FOGLAMP_ROOT + '/services/storage')
 
 
 class Server:
@@ -60,40 +65,40 @@ class Server:
         await cls.scheduler.start()
 
     @classmethod
-    def _start_storage(cls):
+    def _start_storage(cls, host, m_port):
         try:
-            # fix the directory for storage
-            STORAGE_DIR = r"/home/foglamp/Downloads/store/1010"
-            subprocess.call('./storage', cwd=STORAGE_DIR)
+            cmd_with_args = ['./storage', '--address={}'.format(host),
+                             '--port={}'.format(m_port)]
+            subprocess.call(cmd_with_args, cwd=_STORAGE_DIR)
         except Exception as ex:
             _logger.exception(str(ex))
 
-        # TODO: add shutdown in stop
-
     @classmethod
-    def _start_core(cls):
+    def _start_core(cls, host, management_port):
         # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
         # web.run_app(cls._make_core_app(), host='0.0.0.0', port=8082)
 
-        # TODO: make management port dynamic?!
-        host_address = "localhost"  # fix?
-        core_mgt_port = 8082
-
         ma = MultiApp()
-        ma.configure_app(cls._make_core_app(), host=host_address, port=core_mgt_port)
+        ma.configure_app(cls._make_core_app(), host=host, port=management_port)
+
+        # TODO: fetch from app info
+        # to register to core; as there is no update mechanism so just register once
+        # with service port
         service_port = cls.request_available_port()
-        ma.configure_app(cls._make_app(), host=host_address, port=service_port)
+        # port = 0 works here!
+        ma.configure_app(cls._make_app(), host=host, port=service_port)
         # TODO: allow config / env var to set protocol
-        cls.register_core(host_address, service_port, core_mgt_port)
+        cls._register_core(host, management_port, service_port)
         ma.run_all()
 
     @classmethod
-    def register_core(cls, host, service_port, core_mgt_port):
+    def _register_core(cls, host, mgt_port, service_port):
         core_service_id = Service.Instances.register(name="FogLAMP Core", s_type="Core", address=host,
-                                                     port=service_port, management_port=core_mgt_port)
+                                                     port=service_port, management_port=mgt_port)
 
         return core_service_id
 
+    # TODO: remove me | NOT NEEDED (hopefully, we shall be able to get info back from aiohttp)
     @classmethod
     def request_available_port(cls, host='localhost'):
         import socket
@@ -117,17 +122,34 @@ class Server:
                 signal_name,
                 lambda: asyncio.ensure_future(cls._stop(loop)))
 
-        cls._start_storage()
+        # TODO: make management port dynamic?!
+        host_address = "localhost"  # fix?!
+        core_mgt_port = 8082
+
+        # storage can not use the same port as core api will for mgt port
+        cls._start_storage(host_address, core_mgt_port)
         #
         # Fix the order! it works because storage start and registration takes time
 
         # start scheduler
         # The scheduler must start first because the REST API interacts with it
         loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
-        cls._start_core()
+
+        cls._start_core(host=host_address, management_port=core_mgt_port)
 
         #
         # see http://0.0.0.0:8082/foglamp/service for registered services
+
+    @classmethod
+    async def _stop_storage(cls):
+        # TODO: make client call to service mgt API to ask to shutdown storage
+
+        pass
+
+    @classmethod
+    async def _stop_core(cls):
+        # shut down aiohttp apps
+        pass
 
     @classmethod
     async def _stop(cls, loop):
@@ -148,4 +170,10 @@ class Server:
         for task in asyncio.Task.all_tasks():
             task.cancel()
 
+        # ^^ should be moved to _stop_scheduler?
+
+        await cls._stop_storage()
+        await cls._stop_core()
+
+        # stop aiohttp (shutdown apps) before loop? _stop_core()
         loop.stop()

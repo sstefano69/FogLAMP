@@ -1,3 +1,15 @@
+# -*- coding: utf-8 -*-
+
+# FOGLAMP_BEGIN
+# See: http://foglamp.readthedocs.io/
+# FOGLAMP_END
+
+""" aiohttp multi app instances wrapper
+
+https://stackoverflow.com/questions/44850701/multiple-aiohttp-applications-running-in-the-same-process
+Added host to constructor
+"""
+
 import asyncio
 from aiohttp import web
 
@@ -36,7 +48,7 @@ class AppWrapper:
         self.loop.run_until_complete(self.aioapp.shutdown())
 
     def cleanup(self):
-         self.loop.run_until_complete(self.aioapp.cleanup())
+        self.loop.run_until_complete(self.aioapp.cleanup())
 
     def show_info(self):
         print("======== Running on {} ========\n".format(', '.join(self.uris)))
