@@ -87,8 +87,8 @@ class Daemon(object):
             print("FogLAMP is already running in PID {}".format(pid))
         else:
             try:
-                Server._start_management_service()
-                Server._start_storage_service()
+                Server._start_management_api()
+                Server._start_storage()
 
                 # Start Foglamp Server
                 print("Starting FogLAMP")
@@ -143,12 +143,10 @@ class Daemon(object):
         print("FogLAMP stopped")
 
         # Stop Management API last
-        Server._stop_management_service()
+        Server._stop_management_api()
 
         # Stop Storage Services next
         Server._stop_storage()
-
-        print("Storage Service stopped")
 
     @classmethod
     def restart(cls):

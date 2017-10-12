@@ -61,7 +61,7 @@ def check_shutdown(management_api_url):
     res = dict(r.json())
     return res
 
-async def ping():
+async def ping(request):
     """ health check
 
     """

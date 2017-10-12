@@ -32,10 +32,10 @@ __version__ = "${VERSION}"
 _LOGGER = logger.setup(__name__)  # logging.Logger
 
 _FOGLAMP_ROOT = os.getenv('FOGLAMP_ROOT', '/home/asinha/Development/FogLAMP')
-_STORAGE_PATH =  os.path.expanduser(_FOGLAMP_ROOT+'/services/storage')
+_STORAGE_PATH = '.' #os.path.expanduser(_FOGLAMP_ROOT+'/services/storage')
 
+_FOGLAMP_PID_PATH =  os.getenv('FOGLAMP_PID_PATH', os.path.expanduser('~/var/run/foglamp.pid'))
 _MANAGEMENT_PID_PATH = os.getenv('MANAGEMENT_PID_PATH', os.path.expanduser('~/var/run/management.pid'))
-_STORAGE_PID_PATH =  os.getenv('STORAGE_PID_PATH', os.path.expanduser('~/var/run/storage.pid'))
 _STORAGE_SERVICE_NAME = 'Storage Services'
 
 _WAIT_STOP_SECONDS = 5
@@ -109,9 +109,34 @@ class Server:
         routes_core.setup(core)
         return core
 
+    @staticmethod
+    def _make_app():
+        """Creates the REST server
+
+        :rtype: web.Application
+        """
+        app = web.Application(middlewares=[middleware.error_middleware])
+        routes.setup(app)
+        return app
+
     @classmethod
-    def _run_management_api(cls, _MANAGEMENT_PORT):
-        web.run_app(cls._make_management(), host='0.0.0.0', port=_MANAGEMENT_PORT)
+    def _run_management_api(cls, loop, server1, handler1, server2, handler2):
+        """Starts the aiohttp process to serve the Management API"""
+
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server1.close()
+            loop.run_until_complete(server1.wait_closed())
+            loop.run_until_complete(handler1.finish_connections(1.0))
+            server2.close()
+            loop.run_until_complete(server2.wait_closed())
+            loop.run_until_complete(handler2.finish_connections(1.0))
+            loop.close()
+
+        # web.run_app(cls._make_management(), host='0.0.0.0', port=_MANAGEMENT_PORT)
 
     @staticmethod
     def _get_management_pid():
@@ -135,18 +160,30 @@ class Server:
         return pid
 
     @classmethod
-    def _start_management_service(cls):
+    def _start_management_api(cls):
         # Start Management API
         print("Starting Management API")
         try:
             cls._safe_make_dirs(os.path.dirname(_MANAGEMENT_PID_PATH))
             setproctitle.setproctitle('management')
+
+            loop = asyncio.get_event_loop()
+
+            # continue server bootstraping
+            handler1 = cls._make_management().make_handler()
+            coroutine1 = loop.create_server(handler1, '0.0.0.0', 0)
+            server1 = loop.run_until_complete(coroutine1)
+            address1, cls._MANAGEMENT_API_PORT = server1.sockets[0].getsockname()
+            print('Management API started on http://{}:{}'.format(address1, cls._MANAGEMENT_API_PORT))
+
+            handler2 = cls._make_app().make_handler()
+            coroutine2 = loop.create_server(handler2, '0.0.0.0', 8082)
+            server2 = loop.run_until_complete(coroutine2)
+            address2, port2 = server2.sockets[0].getsockname()
+            print('Rest Server started on http://{}:{}'.format(address2, port2))
+
             # Process used instead of subprocess as it allows a python method to run in a separate process.
-
-            # TODO: Investigate if below line is required and remove it if _MANAGEMENT_API_PORT is going to be fixed
-            # cls._MANAGEMENT_API_PORT = cls.request_available_port()
-
-            m = Process(target=cls._run_management_api, name='core', args=(cls._MANAGEMENT_API_PORT,))
+            m = Process(target=cls._run_management_api, name='management', args=(loop, server1, handler1, server2, handler2))
             m.start()
 
             # Create management pid in ~/var/run/storage.pid
@@ -159,7 +196,6 @@ class Server:
         try:
             time_left = 10  # 10 seconds enough?
             _CORE_PING_URL = "http://localhost:{}/foglamp/service/ping".format(cls._MANAGEMENT_API_PORT)
-            print(cls._MANAGEMENT_API_PORT, _CORE_PING_URL)
             while time_left:
                 time.sleep(1)
                 try:
@@ -175,8 +211,8 @@ class Server:
             raise Exception(str(e))
 
     @classmethod
-    def _stop_management_service(cls, pid=None):
-        """Stops Storage if it is running
+    def _stop_management_api(cls, pid=None):
+        """Stops Management APIStorage if it is running
 
         Args:
             pid: Optional process id to stop. If not specified, the pidfile is read.
@@ -225,50 +261,15 @@ class Server:
 
 
     """ Storage Services """
-    @staticmethod
-    def _get_storage_pid():
-        """Returns Storage's process id or None if Storage is not running"""
-
-        try:
-            with open(_STORAGE_PID_PATH, 'r') as pid_file:
-                pid = int(pid_file.read().strip())
-        except (IOError, ValueError):
-            return None
-
-        # Delete the pid file if the process isn't alive
-        # there is an unavoidable race condition here if another
-        # process is stopping or starting the daemon
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            os.remove(_STORAGE_PID_PATH)
-            pid = None
-
-        return pid
-
     @classmethod
     def _start_storage(cls):
-        """Starts Storage"""
-        cls._safe_make_dirs(os.path.dirname(_STORAGE_PID_PATH))
-        pid = cls._get_storage_pid()
-        if pid:
-            print("Storage is already running in PID {}".format(pid))
-        else:
-            # TODO: Uncomment below after Storage layer is fixed to accept below via command line params
-            # cls._STORAGE_PORT = cls.request_available_port()
-            p = subprocess.Popen([_STORAGE_PATH+'/storage', '--port={}'.format(cls.request_available_port()), '--address=localhost'])
-
-            # Create storage pid in ~/var/run/storage.pid
-            with open(_STORAGE_PID_PATH, 'w') as pid_file:
-                pid_file.write(str(p.pid))
-
-    @classmethod
-    def _start_storage_service(cls):
         # Start Storage Service
         print("Starting Storage Services")
         try:
-            setproctitle.setproctitle('storage')
-            cls._start_storage()
+            # setproctitle.setproctitle('storage')
+            with subprocess.Popen([_STORAGE_PATH + '/storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
+                                   '--address=localhost']) as proc:
+                pass
         except OSError as e:
             raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
 
@@ -293,30 +294,16 @@ class Server:
 
     @classmethod
     def _stop_storage(cls, pid=None):
-        """Stops Storage if it is running
-
-        Args:
-            pid: Optional process id to stop. If not specified, the pidfile is read.
-
-        Raises TimeoutError:
-            Unable to stop Storage. Wait and try again.
-        """
-
-        if not pid:
-            pid = cls._get_storage_pid()
-
-        if not pid:
-            print("Storage is not running")
-            return
-
+        """Stops Storage"""
         stopped = False
 
+        # TODO: Fix below. Stopping storage not working from code.
         try:
             l = requests.get('http://localhost:{}'.format(cls._MANAGEMENT_API_PORT) + '/foglamp/service?name=' + _STORAGE_SERVICE_NAME)
             assert 200 == l.status_code
 
-            s = dict(l.json())
-            # TODO: Fix below 2 lines when Storage self registers itself
+            # TODO: Fix below 3 lines when Storage self registers itself
+            # s = dict(l.json())
             # _STORAGE_SHUTDOWN_URL = "{}://{}:{}".format(s["protocol"], s["address"], s["management_port"])
             _STORAGE_SHUTDOWN_URL = "http://localhost:{}".format(cls._STORAGE_MANAGEMENT_PORT)
             retval = service_registry.check_shutdown(_STORAGE_SHUTDOWN_URL)
@@ -326,82 +313,30 @@ class Server:
         if not stopped:
             raise TimeoutError("Unable to stop Storage")
 
-        os.remove(_STORAGE_PID_PATH)
-
         print("Storage stopped")
-
-    @classmethod
-    def _status_storage(cls):
-        """Outputs the status of the Storage process"""
-        pid = cls._get_storage_pid()
-
-        if pid:
-            print("Storage is running in PID {}".format(pid))
-        else:
-            print("Storage is not running")
-            sys.exit(2)
 
 
     """ Foglamp Server """
     @staticmethod
-    def _make_app():
-        """Creates the REST server
-
-        :rtype: web.Application
-        """
-        app = web.Application(middlewares=[middleware.error_middleware])
-        routes.setup(app)
-        return app
-
-    @classmethod
-    async def _start_scheduler(cls):
-        """Starts the scheduler"""
-        cls.scheduler = Scheduler()
-        await cls.scheduler.start()
-
-    @classmethod
-    def _start(cls):
-        """Starts the server"""
-        loop = asyncio.get_event_loop()
-
-        # Register signal handlers
-        # Registering SIGTERM creates an error at shutdown. See
-        # https://github.com/python/asyncio/issues/396
-        for signal_name in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(
-                signal_name,
-                lambda: asyncio.ensure_future(cls._stop(loop)))
-
-        # The scheduler must start first because the REST API interacts with it
-        loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
-
-        # We need to register before starting the server as the server, once started, will go into loop waiting mode,
-        # and if there is any error/exception, the main start try-catch will abort everything.
-        # TODO: Fix below
-        # instance.Service.Instances.register(cls, "admin", "admin", "localhost", cls._RESTAPI_PORT, cls._RESTAPI_PORT, protocol='http')
-
-        # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
-        web.run_app(cls._make_app(), host='0.0.0.0', port=cls._RESTAPI_PORT, handle_signals=False)
-
-    @classmethod
-    def start(cls):
-        cls._configure_logging()
+    def get_pid():
+        """Returns FogLAMP's process id or None if FogLAMP is not running"""
 
         try:
-            cls._start_management_service()
-            cls._start_storage_service()
+            with open(_FOGLAMP_PID_PATH, 'r') as pid_file:
+                pid = int(pid_file.read().strip())
+        except (IOError, ValueError):
+            return None
 
-            # Everthing ok, so now start Foglamp Server
-            print("Starting FogLAMP")
-            try:
-                setproctitle.setproctitle('foglamp')
-                cls._start()
-            except OSError as e:
-                raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
+        # Delete the pid file if the process isn't alive
+        # there is an unavoidable race condition here if another
+        # process is stopping or starting the daemon
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            os.remove(_FOGLAMP_PID_PATH)
+            pid = None
 
-        except Exception as e:
-            sys.stderr.write('Error: '+format(str(e)) + "\n");
-            sys.exit(1)
+        return pid
 
     @classmethod
     async def _stop(cls, loop):
@@ -429,4 +364,45 @@ class Server:
         cls._stop_storage()
 
         # Stop Management API
-        cls._stop_management_service()
+        cls._stop_management_api()
+
+        print("Foglamp stopped")
+
+    @classmethod
+    async def _start_scheduler(cls, management_api_port):
+        """Starts the scheduler"""
+        cls.scheduler = Scheduler(management_api_port)
+        await cls.scheduler.start()
+
+    @classmethod
+    def _start(cls, loop):
+        """Starts the server"""
+        setproctitle.setproctitle('foglamp')
+
+        # Register signal handlers
+        # Registering SIGTERM creates an error at shutdown. See
+        # https://github.com/python/asyncio/issues/396
+        for signal_name in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(signal_name, lambda: asyncio.ensure_future(cls._stop(loop)))
+
+        # The scheduler must start first because the REST API interacts with it
+        loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler(cls._MANAGEMENT_API_PORT)))
+
+    @classmethod
+    def start(cls):
+        cls._configure_logging()
+
+        try:
+            cls._start_management_api()
+            cls._start_storage()
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop = asyncio.get_event_loop()
+
+            cls._start(loop)
+        except Exception as e:
+            sys.stderr.write('Error: '+format(str(e)) + "\n");
+            sys.exit(1)
+
+        sys.exit(0)

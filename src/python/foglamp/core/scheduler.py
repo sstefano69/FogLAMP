@@ -409,9 +409,10 @@ class Scheduler(object):
     _tasks_tbl = None  # type: sqlalchemy.Table
     _logger = None  # type: logging.Logger
 
-    def __init__(self):
+    def __init__(self, management_api_port):
         """Constructor"""
-
+        self.management_api_port = management_api_port
+        print(self.management_api_port)
         cls = Scheduler
 
         # Initialize class attributes
