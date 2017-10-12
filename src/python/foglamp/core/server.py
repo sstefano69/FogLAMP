@@ -29,7 +29,7 @@ _logger = logger.setup(__name__)
 # TODO: FIXME: the ROOT directory
 _FOGLAMP_ROOT = '/home/foglamp/foglamp/FogLAMP'
 _STORAGE_DIR = os.path.expanduser(_FOGLAMP_ROOT + '/services/storage')
-
+_STORAGE_DIR = r"/home/foglamp/Downloads/store/1010"
 
 class Server:
     """FOGLamp core server. Starts the FogLAMP scheduler and the FogLAMP REST server."""

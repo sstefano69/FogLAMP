@@ -39,8 +39,6 @@ _LOGGER = logger.setup(logger_name=__name__, level=20)
 class Daemon(object):
     """FogLAMP Daemon"""
 
-    # TODO FOGL-282: Return true/false instead of printing
-
     @staticmethod
     def _safe_make_dirs(path):
         """ Creates any missing parent directories
@@ -57,6 +55,7 @@ class Daemon(object):
     @classmethod
     def _start_server(cls):
         """Starts the core server"""
+
         Server.start()
 
     @classmethod
@@ -207,7 +206,9 @@ def main():
         Daemon.main()
     except Exception as ex:
         _LOGGER.exception(str(ex))
+
         # If the daemon package has been invoked, the following 'write' will
         # do nothing because stdout and stderr are routed to /dev/null
         sys.stderr.write(format(str(ex)) + "\n")
+
         sys.exit(1)

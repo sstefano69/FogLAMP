@@ -288,7 +288,6 @@ try:
     """  {'message': 'Shutdown in progress'}
     """
 
-
 except InvalidServiceInstance as ex:
     print(ex.code, ex.message)
 except StorageServiceUnavailable as ex:
