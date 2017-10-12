@@ -17,9 +17,9 @@ import signal
 import sys
 import time
 import daemon
-import setproctitle
 from daemon import pidfile
-from foglamp.core.server import Server, _STORAGE_SERVICE_NAME
+
+from foglamp.core.server import Server
 from foglamp import logger
 
 __author__ = "Amarendra K Sinha, Terris Linenbach"
@@ -27,8 +27,8 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_PID_PATH =  os.getenv('FOGLAMP_PID_PATH', os.path.expanduser('~/var/run/foglamp.pid'))
-_WORKING_DIR = os.getenv('WORKING_DIR', os.path.expanduser('~/var/log'))
+_PID_PATH = os.path.expanduser('~/var/run/foglamp.pid')
+_WORKING_DIR = os.path.expanduser('~/var/log')
 
 _WAIT_STOP_SECONDS = 5
 """How many seconds to wait for the core server process to stop"""
@@ -72,7 +72,7 @@ class Daemon(object):
         """Starts the core server"""
 
         cls._configure_logging()
-        Server._start()
+        Server.start()
 
     @classmethod
     def start(cls):
@@ -86,24 +86,16 @@ class Daemon(object):
         if pid:
             print("FogLAMP is already running in PID {}".format(pid))
         else:
-            try:
-                Server._start_management_api()
-                Server._start_storage()
+            # If it is desirable to output the pid to the console,
+            # os.getpid() reports the wrong pid so it's not easy.
+            print("Starting FogLAMP")
 
-                # Start Foglamp Server
-                print("Starting FogLAMP")
-                setproctitle.setproctitle('foglamp')
-                # If it is desirable to output the pid to the console,
-                # os.getpid() reports the wrong pid so it's not easy.
-                with daemon.DaemonContext(
-                    working_directory=_WORKING_DIR,
-                    umask=0o002,
-                    pidfile=pidfile.TimeoutPIDLockFile(_PID_PATH)
-                ):
-                    cls._start_server()
-            except Exception as e:
-                sys.stderr.write('Error: '+format(str(e)) + "\n")
-                sys.exit(1)
+            with daemon.DaemonContext(
+                working_directory=_WORKING_DIR,
+                umask=0o002,
+                pidfile=pidfile.TimeoutPIDLockFile(_PID_PATH)
+            ):
+                cls._start_server()
 
     @classmethod
     def stop(cls, pid=None):
@@ -141,12 +133,6 @@ class Daemon(object):
             raise TimeoutError("Unable to stop FogLAMP")
 
         print("FogLAMP stopped")
-
-        # Stop Management API last
-        Server._stop_management_api()
-
-        # Stop Storage Services next
-        Server._stop_storage()
 
     @classmethod
     def restart(cls):
@@ -207,6 +193,7 @@ class Daemon(object):
 
         :raises ValueError: Invalid or missing arguments provided
         """
+
         if len(sys.argv) == 1:
             raise ValueError("Usage: start|stop|restart|status")
         elif len(sys.argv) == 2:
