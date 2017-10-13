@@ -408,18 +408,22 @@ class Scheduler(object):
     _schedules_tbl = None  # type: sqlalchemy.Table
     _tasks_tbl = None  # type: sqlalchemy.Table
     _logger = None  # type: logging.Logger
+    _core_management_port = None
 
-    def __init__(self):
+    def __init__(self, core_management_port):
         """Constructor"""
 
         cls = Scheduler
 
         # Initialize class attributes
+
         if not cls._logger:
-            cls._logger = logger.setup(__name__)
+            cls._logger = logger.setup(__name__, level=20)
             # cls._logger = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
             # cls._logger = logger.setup(__name__, level=logging.DEBUG)
 
+        if not cls._core_management_port:
+            cls._core_management_port = core_management_port
         if cls._schedules_tbl is None:
             metadata = sqlalchemy.MetaData()
 
@@ -1392,6 +1396,7 @@ class Scheduler(object):
             tasks.append(task)
 
         return tasks
+
     async def get_task(self, task_id: uuid.UUID)->Task:
         """Retrieves a task given its id"""
         query = sqlalchemy.select([self._tasks_tbl.c.id,
@@ -1609,6 +1614,7 @@ class Scheduler(object):
         Raises:
             NotReadyError: Scheduler was stopped
         """
+
         if self._paused or self._schedule_executions is None:
             raise NotReadyError("The scheduler was stopped and can not be restarted")
 
@@ -1618,7 +1624,9 @@ class Scheduler(object):
         if self._start_time:
             raise NotReadyError("The scheduler is starting")
 
-        self._logger.info("Starting")
+        print("starting scheduler; mgt port received is", self._core_management_port)
+        # TODO: self._ready = False until storage status is up
+        self._logger.info("Starting scheduler; mgt port received is %d", self._core_management_port)
 
         self._start_time = self.current_time if self.current_time else time.time()
 

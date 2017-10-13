@@ -24,12 +24,13 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_logger = logger.setup(__name__)
+_logger = logger.setup(__name__, level=20)
 
 # TODO: FIXME: the ROOT directory
 _FOGLAMP_ROOT = '/home/foglamp/foglamp/FogLAMP'
 _STORAGE_DIR = os.path.expanduser(_FOGLAMP_ROOT + '/services/storage')
 _STORAGE_DIR = r"/home/foglamp/Downloads/store/1010"
+
 
 class Server:
     """FOGLamp core server. Starts the FogLAMP scheduler and the FogLAMP REST server."""
@@ -59,9 +60,11 @@ class Server:
         return app
 
     @classmethod
-    async def _start_scheduler(cls):
+    async def _start_scheduler(cls, core_mgt_port):
         """Starts the scheduler"""
-        cls.scheduler = Scheduler()
+        print("called _start_scheduler")
+        _logger.info("start scheduler")
+        cls.scheduler = Scheduler(core_mgt_port)
         await cls.scheduler.start()
 
     @classmethod
@@ -71,7 +74,7 @@ class Server:
     @staticmethod
     def _start_storage(host, m_port):
         print("called _start_storage")
-
+        _logger.info("start storage")
         try:
             cmd_with_args = ['./storage', '--address={}'.format(host),
                              '--port={}'.format(m_port)]
@@ -80,19 +83,12 @@ class Server:
             _logger.exception(str(ex))
 
     @classmethod
-    def _start_core(cls, host, management_port):
+    def _start_core(cls, host, management_port=0, service_port=0):
         print("called _start_core")
-        # https://aiohttp.readthedocs.io/en/stable/_modules/aiohttp/web.html#run_app
-        # web.run_app(cls._make_core_app(), host='0.0.0.0', port=8082)
+        _logger.info("start core")
 
         ma = MultiApp()
         ma.configure_app(cls._make_core_app(), host=host, port=management_port)
-
-        # TODO: fetch from app info
-        # to register to core; as there is no update mechanism so just register once
-        # with service port
-        service_port = cls.request_available_port()
-        # port = 0 works here!
         ma.configure_app(cls._make_app(), host=host, port=service_port)
         # TODO: allow config / env var to set protocol
         cls._register_core(host, management_port, service_port)
@@ -131,16 +127,20 @@ class Server:
 
         # TODO: make management port dynamic?!
         host_address = "localhost"  # fix?!
-        core_mgt_port = 8082
+
+        core_mgt_port = cls.request_available_port()
+        service_port = cls.request_available_port()
 
         # start scheduler
         # The scheduler must start first because the REST API interacts with it
-        loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
+        # loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
 
+        # start storage after core; which starts the loop
         loop.create_task(cls.start_storage(loop, host_address, core_mgt_port))
-        # loop.call_soon(asyncio.ensure_future(cls._start_storage(host_address, core_mgt_port)))
-
-        cls._start_core(host=host_address, management_port=core_mgt_port)
+        # start scheduler after storage
+        # scheduler self._ready flag will be enabled only when storage service ping status is up
+        loop.create_task(cls._start_scheduler(core_mgt_port))
+        cls._start_core(host=host_address, management_port=core_mgt_port, service_port=service_port)
         #
         # see http://0.0.0.0:8082/foglamp/service for registered services
 

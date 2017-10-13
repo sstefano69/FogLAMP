@@ -77,6 +77,9 @@ class MultiApp:
             try:
                 for app in self._apps:
                     app.show_info()
+                    # collect info to register
+                    for s in app.servers:
+                        print(s)
                 print("(Press CTRL+C to quit)")
                 self.loop.run_forever()
             except KeyboardInterrupt:  # pragma: no cover
@@ -84,6 +87,7 @@ class MultiApp:
             finally:
                 for app in self._apps:
                     app.shutdown()
+                print("(Kill storage process manually)")
         finally:
             for app in self._apps:
                 app.cleanup()

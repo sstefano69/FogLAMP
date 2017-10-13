@@ -56,7 +56,7 @@ class Daemon(object):
     def _start_server(cls):
         """Starts the core server"""
 
-        Server.start()
+        Server().start()
 
     @classmethod
     def start(cls):
