@@ -34,7 +34,7 @@ _LOGGER = logger.setup(__name__)  # logging.Logger
 _FOGLAMP_ROOT = os.getenv('FOGLAMP_ROOT', '/home/a/Development/FogLAMP')
 _STORAGE_PATH = os.path.expanduser(_FOGLAMP_ROOT+'/services/storage/')
 
-_STORAGE_SERVICE_NAME = 'Storage Services'
+_STORAGE_SERVICE_NAME = "FogLAMP Storage"
 
 _WAIT_STOP_SECONDS = 5
 """How many seconds to wait for the core server process to stop"""
@@ -78,10 +78,11 @@ class Server:
         stopped = False
         try:
             svc = instance.Service.Instances.all()
+            print(svc)
             for s in svc:
                 # Kill Services first, excluding Storage which will be killed afterwards
-                if _STORAGE_SERVICE_NAME != s["name"]:
-                    service_base_url = "{}://{}:{}/".format(s["protocol"], s["address"], s["management_port"])
+                if 'Storage' != s._type:
+                    service_base_url = "{}://{}:{}/".format(s._protocol, s._address, s._management_port)
                     service_shutdown_url = service_base_url+'/shutdown'
                     retval = service_registry.check_shutdown(service_shutdown_url)
         except (OSError, RuntimeError) as e:
@@ -105,26 +106,6 @@ class Server:
         except OSError as e:
             raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
 
-        # TODO: Do a better timeout
-        # Before proceeding further, do a healthcheck for Storage Services
-        try:
-            time_left = 10  # 10 seconds enough?
-            while time_left:
-                time.sleep(1)
-                try:
-                    _STORAGE_PING_URL = "http://localhost:{}".format(cls._STORAGE_MANAGEMENT_PORT)
-                    retval = service_registry.check_service_availibility(_STORAGE_PING_URL)
-                    break
-                except RuntimeError as e:
-                    # Let us try again
-                    pass
-                time_left -= 1
-
-            if not time_left:
-                raise RuntimeError("Unable to start Storage Services")
-        except RuntimeError as e:
-            raise Exception(str(e))
-
     @classmethod
     async def _stop_storage(cls, app):
         """Stops Storage"""
@@ -133,12 +114,11 @@ class Server:
         stopped = False
         try:
             try:
-                s = instance.Service.Instances.get(name=_STORAGE_SERVICE_NAME)
+                s = instance.Service.Instances.get(s_type='Storage')
                 print(s)
-                _STORAGE_SHUTDOWN_URL = "{}://{}:{}".format(s["protocol"], s["address"], s["management_port"])
+                _STORAGE_SHUTDOWN_URL = "{}://{}:{}".format(s[0]._protocol, s[0]._address, s[0]._management_port)
             except instance.Service.DoesNotExist as ex:
-                print(_STORAGE_SERVICE_NAME+" service does not exist.")
-                _STORAGE_SHUTDOWN_URL = "http://localhost:{}".format(cls._STORAGE_MANAGEMENT_PORT)
+                raise RuntimeError(_STORAGE_SERVICE_NAME+" service does not exist.")
 
             retval = service_registry.check_shutdown(_STORAGE_SHUTDOWN_URL)
             print(retval)
