@@ -11,16 +11,18 @@ import sys
 import time
 
 import aiohttp
-import requests
 import subprocess
-from aiohttp import web
 
+import requests
+from aiohttp import web
+import json
+import http.client
 from foglamp import logger
 from foglamp.core import routes
 from foglamp.core import routes_core
 from foglamp.core import middleware
 from foglamp.core.scheduler import Scheduler
-from foglamp.core.service_registry import service_registry
+from foglamp.core.service_registry import service_registry, instance
 
 __author__ = "Praveen Garg, Terris Linenbach, Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -51,9 +53,11 @@ class Server:
     """Set to true when it's safe to use logging"""
 
     _MANAGEMENT_API_PORT = None
+    _RESTAPI_PORT = 8082
+
+    # TODO: Set below to None
     _STORAGE_PORT = 8080
     _STORAGE_MANAGEMENT_PORT = 1081
-    _RESTAPI_PORT = 8082
 
     @classmethod
     def _configure_logging(cls):
@@ -66,30 +70,25 @@ class Server:
         logger.setup()
         cls.logging_configured = True
 
-    # TODO: Fix this
     @classmethod
     async def _stop_management_api(cls, app):
-        """Stops Management APIStorage if it is running"""
-        stopped = False
-        loop = asyncio.get_event_loop()
-        try:
-            url = 'http://localhost:{}'.format(cls._MANAGEMENT_API_PORT) + '/foglamp/service'
-            async with aiohttp.ClientSession(loop=loop) as client:
-                async with client.get(url) as resp:
-                    assert resp.status == 200
-                    retval = dict(resp.json())
-                    print(retval)
-                    svc = retval["services"]
-                    for s in svc:
-                        # Kill Services first, excluding Storage which will be killed afterwards
-                        if _STORAGE_SERVICE_NAME != s["name"]:
-                            service_base_url = "{}://{}:{}/".format(s["protocol"], s["address"], s["management_port"])
-                            service_shutdown_url = service_base_url+'/shutdown'
-                            retval = service_registry.check_shutdown(service_shutdown_url)
-        except (OSError, RuntimeError):
-            stopped = True
+        """Stops Management API"""
+        print("Stopping Management API")
 
-        if not stopped:
+        stopped = False
+        try:
+            svc = instance.Service.Instances.all()
+            for s in svc:
+                # Kill Services first, excluding Storage which will be killed afterwards
+                if _STORAGE_SERVICE_NAME != s["name"]:
+                    service_base_url = "{}://{}:{}/".format(s["protocol"], s["address"], s["management_port"])
+                    service_shutdown_url = service_base_url+'/shutdown'
+                    retval = service_registry.check_shutdown(service_shutdown_url)
+        except (OSError, RuntimeError) as e:
+            stopped = True
+            raise Exception(str(e))
+
+        if stopped:
             raise TimeoutError("Unable to stop Management API")
 
         print("Management API stopped")
@@ -106,6 +105,7 @@ class Server:
         except OSError as e:
             raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
 
+        # TODO: Do a better timeout
         # Before proceeding further, do a healthcheck for Storage Services
         try:
             time_left = 10  # 10 seconds enough?
@@ -125,28 +125,28 @@ class Server:
         except RuntimeError as e:
             raise Exception(str(e))
 
-    # TODO: Fix below
     @classmethod
     async def _stop_storage(cls, app):
         """Stops Storage"""
-        stopped = False
-        loop = asyncio.get_event_loop()
+        print("Stopping Storage Services")
 
-        # TODO: Fix below. Stopping storage not working from code.
+        stopped = False
         try:
-            url = 'http://localhost:{}'.format(cls._MANAGEMENT_API_PORT) + '/foglamp/service?name=' + _STORAGE_SERVICE_NAME
-            async with aiohttp.ClientSession(loop=loop) as client:
-                async with client.get(url) as resp:
-                    assert resp.status == 200
-                    # TODO: Fix below 3 lines when Storage self registers itself
-                    # s = dict(resp.json())
-                    # _STORAGE_SHUTDOWN_URL = "{}://{}:{}".format(s["protocol"], s["address"], s["management_port"])
-                    _STORAGE_SHUTDOWN_URL = "http://localhost:{}".format(cls._STORAGE_MANAGEMENT_PORT)
-                    retval = service_registry.check_shutdown(_STORAGE_SHUTDOWN_URL)
+            try:
+                s = instance.Service.Instances.get(name=_STORAGE_SERVICE_NAME)
+                print(s)
+                _STORAGE_SHUTDOWN_URL = "{}://{}:{}".format(s["protocol"], s["address"], s["management_port"])
+            except instance.Service.DoesNotExist as ex:
+                print(_STORAGE_SERVICE_NAME+" service does not exist.")
+                _STORAGE_SHUTDOWN_URL = "http://localhost:{}".format(cls._STORAGE_MANAGEMENT_PORT)
+
+            retval = service_registry.check_shutdown(_STORAGE_SHUTDOWN_URL)
+            print(retval)
         except Exception as err:
             stopped = True
+            raise Exception(str(err))
 
-        if not stopped:
+        if stopped:
             raise TimeoutError("Unable to stop Storage")
 
         print("Storage stopped")
@@ -159,11 +159,7 @@ class Server:
 
     @classmethod
     async def _stop_scheduler(cls, app):
-        """Attempts to stop the server
-
-        If the scheduler stops successfully, the event loop is
-        stopped.
-        """
+        """Attempts to stop the server"""
         if cls.scheduler:
             try:
                 await cls.scheduler.stop()
@@ -178,19 +174,9 @@ class Server:
 
         print("Foglamp stopped")
 
-    # TODO: fix below two methods
-    @classmethod
-    async def stop_management_services(cls, core):
-        await core.loop.create_task(cls._stop_management_api(core))
-
-    @classmethod
-    async def stop_storage_services(cls, core):
-        await core.loop.create_task(cls._stop_storage(core))
-
     @classmethod
     def _make_management(cls):
         """Creates the REST server
-
         :rtype: web.Application
         """
         core = web.Application(middlewares=[middleware.error_middleware])
@@ -198,15 +184,13 @@ class Server:
         core.on_startup.append(cls._start_storage)
         core.on_startup.append(cls._start_scheduler)
         core.on_shutdown.append(cls._stop_scheduler)
-        # TODO: Fix below two methods
-        # core.on_shutdown.append(cls._stop_management_api)
-        # core.on_shutdown.append(cls.stop_storage_services)
+        core.on_shutdown.append(cls._stop_management_api)
+        core.on_shutdown.append(cls._stop_storage)
         return core
 
     @classmethod
     def _make_app(cls):
         """Creates the REST server
-
         :rtype: web.Application
         """
         app = web.Application(middlewares=[middleware.error_middleware])
@@ -216,7 +200,7 @@ class Server:
     @classmethod
     def start(cls):
         cls._configure_logging()
-        print("Starting Management API")
+        print("Starting Core")
         try:
             loop = asyncio.get_event_loop()
 
@@ -243,19 +227,17 @@ class Server:
             except KeyboardInterrupt:
                 pass
             finally:
-                # TODO: Remove unnecessary calls
-                # Important to note the order
+                server1.close()
                 loop.run_until_complete(core.shutdown())
-                # loop.run_until_complete(server1.wait_closed())
-                # loop.run_until_complete(handler1.shutdown(60.0))
-                # loop.run_until_complete(handler1.finish_connections(1.0))
-                # loop.run_until_complete(core.cleanup())
+                loop.run_until_complete(handler1.shutdown(60.0))
+                loop.run_until_complete(handler1.finish_connections(1.0))
+                loop.run_until_complete(core.cleanup())
 
-                # loop.run_until_complete(app.shutdown())
-                # loop.run_until_complete(server2.wait_closed())
-                # loop.run_until_complete(handler2.shutdown(60.0))
-                # loop.run_until_complete(handler2.finish_connections(1.0))
-                # loop.run_until_complete(app.cleanup())
+                server2.close()
+                loop.run_until_complete(app.shutdown())
+                loop.run_until_complete(handler2.shutdown(60.0))
+                loop.run_until_complete(handler2.finish_connections(1.0))
+                loop.run_until_complete(app.cleanup())
 
             loop.close()
         except (OSError, RuntimeError, TimeoutError) as e:

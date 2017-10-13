@@ -32,9 +32,9 @@ _help = """
 
 _LOGGER = logger.setup(__name__)  # logging.Logger
 
-def check_service_availibility(management_api_url):
+def check_service_availibility(base_url):
     """ ping service """
-    r = requests.get(management_api_url+'/foglamp/service/ping')
+    r = requests.get(base_url+'/foglamp/service/ping')
     # TODO: log error with message if status is 4xx or 5xx
     if r.status_code in range(400, 500):
         _LOGGER.error("Client error code: %d", r.status_code)
@@ -47,9 +47,9 @@ def check_service_availibility(management_api_url):
     return res
 
 
-def check_shutdown(management_api_url):
+def check_shutdown(base_url):
     """ stop service """
-    r = requests.get(management_api_url+'/foglamp/service/shutdown')
+    r = requests.post(base_url+'/foglamp/service/shutdown')
     # TODO: log error with message if status is 4xx or 5xx
     if r.status_code in range(400, 500):
         _LOGGER.error("Client error code: %d", r.status_code)
