@@ -74,20 +74,24 @@ class Server:
         cls.scheduler = Scheduler(cls._MANAGEMENT_PORT)
         await cls.scheduler.start()
 
-    @classmethod
-    async def start_storage(cls, loop):
-        loop.call_soon(cls._start_storage())
-
-    @classmethod
-    def _start_storage(cls):
+    @staticmethod
+    def _start_storage(host, m_port):
         print("called _start_storage")
         _logger.info("start storage")
         try:
-            cmd_with_args = ['./storage', '--address={}'.format(cls._HOST),
-                             '--port={}'.format(cls._MANAGEMENT_PORT)]
+            cmd_with_args = ['./storage', '--address={}'.format(host),
+                             '--port={}'.format(m_port)]
             subprocess.call(cmd_with_args, cwd=_STORAGE_DIR)
         except Exception as ex:
             _logger.exception(str(ex))
+
+    @classmethod
+    async def start_storage(cls, loop):
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        loop.call_soon(cls._start_storage, cls._HOST, cls._MANAGEMENT_PORT)
+
+
 
     @classmethod
     def _start_core_and_user(cls, loop=None, host="locahost", service_port=8081, management_port=0):
