@@ -31,6 +31,9 @@ _FOGLAMP_ROOT = '/home/foglamp/foglamp/FogLAMP'
 _STORAGE_DIR = os.path.expanduser(_FOGLAMP_ROOT + '/services/storage')
 _STORAGE_DIR = r"/home/foglamp/Downloads/store/1010"
 
+_API_SERVICE_PORT = 8081
+HOST = 'localhost'
+
 
 class Server:
     """FOGLamp core server. Starts the FogLAMP scheduler and the FogLAMP REST server."""
@@ -83,7 +86,7 @@ class Server:
             _logger.exception(str(ex))
 
     @classmethod
-    def _start_core(cls, host, management_port=0, service_port=0):
+    def _start_core(cls, host,  service_port, management_port=0):
         print("called _start_core")
         _logger.info("start core")
 
@@ -108,6 +111,7 @@ class Server:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind((host, 0))
         addr, port = s.getsockname()
+        # closed ?!
         s.close()
         return port
 
@@ -125,24 +129,27 @@ class Server:
                 signal_name,
                 lambda: asyncio.ensure_future(cls._stop(loop)))
 
-        # TODO: make management port dynamic?!
-        host_address = "localhost"  # fix?!
+        host_address = HOST  # fix?!
 
-        core_mgt_port = cls.request_available_port()
-        service_port = cls.request_available_port()
+        # as of now, can't bind to 0 as we need to know
+        # a) to pass this to stoarge and scheduler
+        # b) and to register the 1 service for both aiohttp instances
+        # however, there for b) these is a way to register see TODO in foglamp.core.http_server.MultiApp#run_all
 
-        # start scheduler
-        # The scheduler must start first because the REST API interacts with it
-        # loop.run_until_complete(asyncio.ensure_future(cls._start_scheduler()))
+        _core_mgt_port = cls.request_available_port()
 
         # start storage after core; which starts the loop
-        loop.create_task(cls.start_storage(loop, host_address, core_mgt_port))
+        loop.create_task(cls.start_storage(loop, host_address, _core_mgt_port))
+
         # start scheduler after storage
-        # scheduler self._ready flag will be enabled only when storage service ping status is up
-        loop.create_task(cls._start_scheduler(core_mgt_port))
-        cls._start_core(host=host_address, management_port=core_mgt_port, service_port=service_port)
+        # start the scheduler, but self._ready flag will be enabled
+        # only when storage service ping status is up,
+        # so that it can read storage to read scheduled_processes and schedules
+        loop.create_task(cls._start_scheduler(_core_mgt_port))
+
+        cls._start_core(host=host_address, service_port=_API_SERVICE_PORT, management_port=_core_mgt_port)
         #
-        # see http://0.0.0.0:8082/foglamp/service for registered services
+        # see http://0.0.0.0:<core_mgt_port>/foglamp/service for registered services
 
     @staticmethod
     def stop_storage():
@@ -155,10 +162,13 @@ class Server:
 
     @classmethod
     async def _stop_core(cls):
+        # wait for stop storage to unregister?!
+        # does not matter btw! as in memory service_registry is in memory
         # stop aiohttp (shutdown apps)
         pass
 
     # I doubt! this has ever been called?
+    # rename to stop scheduler?!
     @classmethod
     async def _stop(cls, loop):
         """Attempts to stop the server

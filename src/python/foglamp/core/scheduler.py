@@ -1632,7 +1632,7 @@ class Scheduler(object):
 
         # Hard-code storage server:
 
-        # wanna do this?
+        # Praveen: wanna do this? No! Just remove this fake process scheduling
 
         # register storage as command?
 
@@ -1660,7 +1660,9 @@ class Scheduler(object):
         # self._schedule_executions[schedule_id] = schedule_execution
         #
         # await self._start_task(schedule)
-        #
+
+        # TODO: make sure that it go forward only when storage is ready
+        # move above and let self._ready handle it?
         # poll for ping? to go forward
 
         await self._read_config()

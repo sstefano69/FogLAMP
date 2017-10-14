@@ -12,6 +12,7 @@ Added host to constructor
 
 import asyncio
 from aiohttp import web
+from foglamp.storage.storage import Storage
 
 
 class AppWrapper:
@@ -77,7 +78,7 @@ class MultiApp:
             try:
                 for app in self._apps:
                     app.show_info()
-                    # collect info to register
+                    # TODO: collect info to register
                     for s in app.servers:
                         print(s)
                 print("(Press CTRL+C to quit)")
@@ -85,9 +86,15 @@ class MultiApp:
             except KeyboardInterrupt:  # pragma: no cover
                 pass
             finally:
+                # WTH!
+                try:
+                    Storage().shutdown()
+                except Exception as ex:
+                    print(str(ex))
+                # wait for stop storage to unregister?!
+                # does not matter btw! as in memory service_registry is in memory
                 for app in self._apps:
                     app.shutdown()
-                print("(Kill storage process manually)")
         finally:
             for app in self._apps:
                 app.cleanup()
