@@ -157,6 +157,7 @@ class Storage(AbstractStorage):
         #                        m_port=svc["management_port"], s_address=svc["address"], s_protocol=svc["protocol"])
         found_services = Service.Instances.get(name="FogLAMP Storage")
         svc = found_services[0]
+        # retry for a while?
         if svc is None:
             raise InvalidServiceInstance
         self.service = svc

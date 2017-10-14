@@ -23,7 +23,7 @@ from sqlalchemy.dialects import postgresql as pg_types
 
 from foglamp import logger
 from foglamp import configuration_manager
-
+from foglamp.core.service_registry.instance import Service
 
 __author__ = "Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -1624,10 +1624,6 @@ class Scheduler(object):
         if self._start_time:
             raise NotReadyError("The scheduler is starting")
 
-        print("starting scheduler; mgt port received is", self._core_management_port)
-        # TODO: self._ready = False until storage status is up
-        self._logger.info("Starting scheduler; mgt port received is %d", self._core_management_port)
-
         self._start_time = self.current_time if self.current_time else time.time()
 
         # Hard-code storage server:
@@ -1661,9 +1657,16 @@ class Scheduler(object):
         #
         # await self._start_task(schedule)
 
-        # TODO: make sure that it go forward only when storage is ready
-        # move above and let self._ready handle it?
-        # poll for ping? to go forward
+        # make sure that it go forward only when storage service is ready
+        storage_service = None
+
+        while storage_service is None:  # TODO: wait for x minutes?
+            try:
+                found_services = Service.Instances.get(name="FogLAMP Storage")
+                storage_service = found_services[0]
+            except Exception:
+                await asyncio.sleep(5)
+        self._logger.info("Starting scheduler; mgt port received is %d", self._core_management_port)
 
         await self._read_config()
         await self._mark_tasks_interrupted()
