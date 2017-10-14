@@ -66,9 +66,8 @@ class Server:
         print("Starting Storage Services")
 
         try:
-            with subprocess.Popen([_STORAGE_PATH + 'storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
-                                   '--address=localhost'], cwd=_STORAGE_PATH) as proc:
-                pass
+            subprocess.call([_STORAGE_PATH + 'storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
+                                   '--address=localhost'], cwd=_STORAGE_PATH)
         except OSError as e:
             raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
 
@@ -79,7 +78,7 @@ class Server:
         await cls.scheduler.start()
 
     @classmethod
-    async def _stop_scheduler(cls, app):
+    async def _stop_scheduler(cls, app=None):
         """Attempts to stop the server"""
         if cls.scheduler:
             try:
@@ -96,7 +95,7 @@ class Server:
         print("Foglamp stopped")
 
     @classmethod
-    async def _stop_management_api(cls, app):
+    async def _stop_management_api(cls, app=None):
         """Stops Management API"""
         print("Stopping Management API")
 
@@ -120,7 +119,7 @@ class Server:
         print("Management API stopped")
 
     @classmethod
-    async def _stop_storage(cls, app):
+    async def _stop_storage(cls, app=None):
         """Stops Storage"""
         print("Stopping Storage Services")
 
@@ -168,11 +167,12 @@ class Server:
         return app
 
     @classmethod
-    def start(cls):
+    def start(cls, loop=None):
         cls._configure_logging()
         print("Starting Core")
         try:
-            loop = asyncio.get_event_loop()
+            if loop is None:
+                loop = asyncio.get_event_loop()
 
             # Management API first
             core = cls._make_management()

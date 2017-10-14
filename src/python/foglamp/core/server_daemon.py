@@ -10,13 +10,10 @@
 This module can not be called 'daemon' because it conflicts
 with the third-party daemon module
 """
-
 import os
 import signal
 import sys
 import time
-import daemon
-from daemon import pidfile
 
 from foglamp.core.server import Server
 from foglamp import logger
@@ -75,13 +72,18 @@ class Daemon(object):
             print("Starting FogLAMP")
             _LOGGER.info("Starting FogLAMP")
 
-            with daemon.DaemonContext(
-                working_directory=_WORKING_DIR,
-                umask=0o002,
-                pidfile=pidfile.TimeoutPIDLockFile(_PID_PATH)
-            ):
+            pid = os.fork()
+            if pid == 0:
                 cls._start_server()
+            else:
+                # Create pid in ~/var/run/foglamp.pid
+                with open(_PID_PATH, 'w') as pid_file:
+                    pid_file.write(str(pid))
 
+                time.sleep(10)
+                sys.exit(0)
+
+    # TODO: stop() is not working
     @classmethod
     def stop(cls, pid=None):
         """Stops FogLAMP if it is running
