@@ -9,14 +9,8 @@ import os
 import asyncio
 import sys
 import time
-
-import aiohttp
 import subprocess
-
-import requests
 from aiohttp import web
-import json
-import http.client
 from foglamp import logger
 from foglamp.core import routes
 from foglamp.core import routes_core
@@ -33,8 +27,6 @@ _LOGGER = logger.setup(__name__)  # logging.Logger
 
 _FOGLAMP_ROOT = os.getenv('FOGLAMP_ROOT', '/home/a/Development/FogLAMP')
 _STORAGE_PATH = os.path.expanduser(_FOGLAMP_ROOT+'/services/storage/')
-
-_STORAGE_SERVICE_NAME = "FogLAMP Storage"
 
 _WAIT_STOP_SECONDS = 5
 """How many seconds to wait for the core server process to stop"""
@@ -54,10 +46,8 @@ class Server:
 
     _MANAGEMENT_API_PORT = None
     _RESTAPI_PORT = 8082
-
-    # TODO: Set below to None
-    _STORAGE_PORT = 8080
-    _STORAGE_MANAGEMENT_PORT = 1081
+    _STORAGE_PORT = None
+    _STORAGE_MANAGEMENT_PORT = None
 
     @classmethod
     def _configure_logging(cls):
@@ -69,6 +59,41 @@ class Server:
 
         logger.setup()
         cls.logging_configured = True
+
+    @classmethod
+    async def _start_storage(cls, app):
+        # Start Storage Service
+        print("Starting Storage Services")
+
+        try:
+            with subprocess.Popen([_STORAGE_PATH + 'storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
+                                   '--address=localhost'], cwd=_STORAGE_PATH) as proc:
+                pass
+        except OSError as e:
+            raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
+
+    @classmethod
+    async def _start_scheduler(cls, app):
+        """Starts the scheduler"""
+        cls.scheduler = Scheduler(cls._MANAGEMENT_API_PORT)
+        await cls.scheduler.start()
+
+    @classmethod
+    async def _stop_scheduler(cls, app):
+        """Attempts to stop the server"""
+        if cls.scheduler:
+            try:
+                await cls.scheduler.stop()
+                cls.scheduler = None
+            except TimeoutError:
+                _LOGGER.exception('Unable to stop the scheduler')
+                return
+
+        # Cancel asyncio tasks
+        for task in asyncio.Task.all_tasks():
+            task.cancel()
+
+        print("Foglamp stopped")
 
     @classmethod
     async def _stop_management_api(cls, app):
@@ -95,18 +120,6 @@ class Server:
         print("Management API stopped")
 
     @classmethod
-    async def _start_storage(cls, app):
-        # Start Storage Service
-        print("Starting Storage Services")
-
-        try:
-            with subprocess.Popen([_STORAGE_PATH + 'storage', '--port={}'.format(cls._MANAGEMENT_API_PORT),
-                                   '--address=localhost'], cwd=_STORAGE_PATH) as proc:
-                pass
-        except OSError as e:
-            raise Exception("[{}] {} {} {}".format(e.errno, e.strerror, e.filename, e.filename2))
-
-    @classmethod
     async def _stop_storage(cls, app):
         """Stops Storage"""
         print("Stopping Storage Services")
@@ -118,7 +131,7 @@ class Server:
                 print(s)
                 _STORAGE_SHUTDOWN_URL = "{}://{}:{}".format(s[0]._protocol, s[0]._address, s[0]._management_port)
             except instance.Service.DoesNotExist as ex:
-                raise RuntimeError(_STORAGE_SERVICE_NAME+" service does not exist.")
+                raise RuntimeError("Storage Service does not exist.")
 
             retval = service_registry.check_shutdown(_STORAGE_SHUTDOWN_URL)
             print(retval)
@@ -130,29 +143,6 @@ class Server:
             raise TimeoutError("Unable to stop Storage")
 
         print("Storage stopped")
-
-    @classmethod
-    async def _start_scheduler(cls, app):
-        """Starts the scheduler"""
-        cls.scheduler = Scheduler(cls._MANAGEMENT_API_PORT)
-        await cls.scheduler.start()
-
-    @classmethod
-    async def _stop_scheduler(cls, app):
-        """Attempts to stop the server"""
-        if cls.scheduler:
-            try:
-                await cls.scheduler.stop()
-                cls.scheduler = None
-            except TimeoutError:
-                _LOGGER.exception('Unable to stop the scheduler')
-                return
-
-        # Cancel asyncio tasks
-        for task in asyncio.Task.all_tasks():
-            task.cancel()
-
-        print("Foglamp stopped")
 
     @classmethod
     def _make_management(cls):
@@ -201,6 +191,12 @@ class Server:
             server2 = loop.run_until_complete(coroutine2)
             address2, port2 = server2.sockets[0].getsockname()
             print('Rest Server started on http://{}:{}'.format(address2, port2))
+
+            # TODO: Investigate why below wait is a must for Management API server to start responding to requests and
+            #       how it can be replaced by some kind of polling mechanism.
+            print("Wait, getting ready...")
+            time.sleep(10)
+            print("Now ready...")
 
             try:
                 loop.run_forever()
