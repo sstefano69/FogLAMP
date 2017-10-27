@@ -11,8 +11,8 @@ from aiohttp import web
 
 from foglamp.core import server
 from foglamp.core.api import scheduler_db_services
-from foglamp.core.scheduler import NotReadyError, DuplicateRequestError, TaskNotRunningError, TaskNotFoundError, ScheduleNotFoundError
-from foglamp.core.scheduler import Schedule, StartUpSchedule, TimedSchedule, IntervalSchedule, ManualSchedule, Task, Where
+from foglamp.core.scheduler_exceptions import NotReadyError, DuplicateRequestError, TaskNotRunningError, TaskNotFoundError, ScheduleNotFoundError
+from foglamp.core.scheduler_entities import Schedule, StartUpSchedule, TimedSchedule, IntervalSchedule, ManualSchedule, Task
 
 
 __author__ = "Amarendra K. Sinha"
