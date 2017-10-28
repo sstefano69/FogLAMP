@@ -93,11 +93,6 @@ class Daemon(object):
             Unable to stop FogLAMP. Wait and try again.
         """
 
-        # TODO: FOGL-274 Stopping is hard.
-
-        # stop the storage
-        Server().stop_storage()
-
         if not pid:
             pid = cls.get_pid()
 
