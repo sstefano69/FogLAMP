@@ -17,36 +17,6 @@ __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-class Task(object):
-    """A task represents an operating system process"""
-
-    class State(IntEnum):
-        """Enumeration for tasks.task_state"""
-        RUNNING = 1
-        COMPLETE = 2
-        CANCELED = 3
-        INTERRUPTED = 4
-
-    # Class attributes
-    attr = collections.namedtuple('TaskAttributes', ['state', 'process_name', 'start_time',
-                                                     'end_time', 'exit_code'])
-
-    __slots__ = ['task_id', 'process_name', 'state', 'cancel_requested', 'start_time',
-                 'end_time', 'state', 'exit_code', 'reason']
-
-    def __init__(self):
-        # Instance attributes
-        self.task_id = None  # type: uuid.UUID
-        """Unique identifier"""
-        self.process_name = None  # type: str
-        self.reason = None  # type: str
-        self.state = None  # type: Task.State
-        self.cancel_requested = None  # type: datetime.datetime
-        self.start_time = None  # type: datetime.datetime
-        self.end_time = None  # type: datetime.datetime
-        self.exit_code = None  # type: int
-
-
 class ScheduledProcess(object):
     """Represents a program that a Task can run"""
 
@@ -108,3 +78,34 @@ class StartUpSchedule(Schedule):
 
     def __init__(self):
         super().__init__(self.Type.STARTUP)
+
+class Task(object):
+    """A task represents an operating system process"""
+
+    class State(IntEnum):
+        """Enumeration for tasks.task_state"""
+        RUNNING = 1
+        COMPLETE = 2
+        CANCELED = 3
+        INTERRUPTED = 4
+
+    # Class attributes
+    attr = collections.namedtuple('TaskAttributes', ['state', 'process_name', 'start_time',
+                                                     'end_time', 'exit_code'])
+
+    __slots__ = ['task_id', 'process_name', 'state', 'cancel_requested', 'start_time',
+                 'end_time', 'state', 'exit_code', 'reason']
+
+    def __init__(self):
+        # Instance attributes
+        self.task_id = None  # type: uuid.UUID
+        """Unique identifier"""
+        self.process_name = None  # type: str
+        self.reason = None  # type: str
+        self.state = None  # type: Task.State
+        self.cancel_requested = None  # type: datetime.datetime
+        self.start_time = None  # type: datetime.datetime
+        self.end_time = None  # type: datetime.datetime
+        self.exit_code = None  # type: int
+
+

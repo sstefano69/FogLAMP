@@ -4,15 +4,13 @@
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
 
-import time
-import json
-import asyncpg
-import requests
-import pytest
 import asyncio
+import json
 import uuid
-from foglamp.core.scheduler import Schedule
 
+import pytest
+import requests
+from foglamp.core.scheduler import Schedule
 
 __author__ = "Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -53,24 +51,10 @@ class TestScheduler:
     @classmethod
     def setup_class(cls):
         asyncio.get_event_loop().run_until_complete(add_master_data())
-        from subprocess import call
-        call(["foglamp", "start"])
-        # TODO: Due to lengthy start up, now tests need a better way to start foglamp or poll some
-        #       external process to check if foglamp has started.
-        time.sleep(20)
 
     @classmethod
     def teardown_class(cls):
-        from subprocess import call
-        call(["foglamp", "stop"])
-        time.sleep(4)
         asyncio.get_event_loop().run_until_complete(delete_master_data())
-
-    def setup_method(self, method):
-        pass
-
-    def teardown_method(self, method):
-        pass
 
     def _create_schedule(self, data):
         r = requests.post(BASE_URL + '/schedule', data=json.dumps(data), headers=headers)
@@ -226,7 +210,6 @@ class TestScheduler:
         r = requests.get(BASE_URL+'/task')
         retval = dict(r.json())
         assert 200 == r.status_code
-
         l_task_state = []
         for tasks in retval['tasks']:
             if tasks['process_name'] == data['process_name']:

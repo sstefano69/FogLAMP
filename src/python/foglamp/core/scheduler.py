@@ -11,20 +11,20 @@ import collections
 import datetime
 import logging
 import math
+import signal
+import sys
 import time
 import uuid
-import sys
-import signal
-from typing import Iterable, List, Tuple, Union
+from typing import List
 
-from foglamp import logger
 from foglamp import configuration_manager
-from foglamp.core.service_registry.instance import Service
-from foglamp.storage.storage import Storage
-from foglamp.storage.payload_builder import PayloadBuilder
+from foglamp import logger
+from foglamp.core.scheduler.scheduler_exceptions import NotReadyError, ScheduleNotFoundError, DuplicateRequestError, TaskNotFoundError, TaskNotRunningError
 from foglamp.core.scheduler_entities import ScheduledProcess, Schedule, Task, IntervalSchedule, TimedSchedule, StartUpSchedule, ManualSchedule
-from foglamp.core.scheduler_exceptions import NotReadyError, ScheduleNotFoundError, DuplicateRequestError, TaskNotFoundError, TaskNotRunningError
+from foglamp.core.service_registry.instance import Service
 from foglamp.storage.exceptions import *
+from foglamp.storage.payload_builder import PayloadBuilder
+from foglamp.storage.storage import Storage
 
 __author__ = "Terris Linenbach, Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -112,10 +112,11 @@ class Scheduler(object):
 
     # Mostly constant class attributes
     _logger = None  # type: logging.Logger
+
+    _core_management_host = None
     _core_management_port = None
 
-    # TODO: Remove below '=None' after FOGL-521 is merged
-    def __init__(self, core_management_port=None):
+    def __init__(self, core_management_host=None, core_management_port=None):
         """Constructor"""
 
         cls = Scheduler
@@ -127,6 +128,9 @@ class Scheduler(object):
             # cls._logger = logger.setup(__name__, level=logging.DEBUG)
         if not cls._core_management_port:
             cls._core_management_port = core_management_port
+        if not cls._core_management_host:
+            cls._core_management_host = core_management_host
+
 
         # Instance attributes
         self._ready = False
@@ -280,15 +284,21 @@ class Scheduler(object):
         # the start of the awaited coroutine.
         args = self._process_scripts[schedule.process_name]
 
+        # add core management host and port to process script args
+        args_to_exec = args.copy()
+        args_to_exec.append("--port={}".format(self._core_management_port))
+        args_to_exec.append("--address=127.0.0.1")
+        args_to_exec.append("--name={}".format(schedule.process_name))
+
         task_process = self._TaskProcess()
         task_process.start_time = time.time()
 
         try:
-            process = await asyncio.create_subprocess_exec(*args)
+            process = await asyncio.create_subprocess_exec(*args_to_exec)
         except EnvironmentError:
             self._logger.exception(
                 "Unable to start schedule '%s' process '%s'\n%s".format(
-                    schedule.name, schedule.process_name, args))
+                    schedule.name, schedule.process_name, args_to_exec))
             raise
 
         task_id = uuid.uuid4()
@@ -302,7 +312,7 @@ class Scheduler(object):
         self._logger.info(
             "Process started: Schedule '%s' process '%s' task %s pid %s, %s running tasks\n%s",
             schedule.name, schedule.process_name, task_id, process.pid,
-            len(self._task_processes), args)
+            len(self._task_processes), args_to_exec)
 
         # Startup tasks are not tracked in the tasks table
         if schedule.type != Schedule.Type.STARTUP:
