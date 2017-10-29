@@ -8,7 +8,6 @@
 
 import os
 import sys
-import signal
 import asyncio
 from aiohttp import web
 import subprocess
@@ -46,7 +45,7 @@ class Server:
     _host = '0.0.0.0'
     core_management_port = 0
 
-    # TODO: Get Admin API port from configuration option
+    # TODO: FOGL-655 Get Admin API port from configuration option
     rest_service_port = 8081
 
     @staticmethod
@@ -88,6 +87,9 @@ class Server:
 
     @classmethod
     async def _start_storage(cls, loop):
+        # TODO: FOGL-654 simplify start storage
+        # instead of callback use asyncio subprocess shell executor
+
         if loop is None:
             loop = asyncio.get_event_loop()
             # callback with args
