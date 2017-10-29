@@ -18,7 +18,7 @@ import urllib.parse
 import numbers
 
 from foglamp import logger
-
+from foglamp.storage.utils import Utils
 
 _LOGGER = logger.setup(__name__)
 
@@ -81,14 +81,6 @@ class PayloadBuilder(object):
                     retval = True
         return retval
 
-    @staticmethod
-    def is_json(myjson):
-        try:
-            json_object = json.loads(myjson)
-        except (ValueError, Exception):
-            return False
-        return True
-
     @classmethod
     def ALIAS(cls, *args):
         raise NotImplementedError("To be implemented")
@@ -101,10 +93,10 @@ class PayloadBuilder(object):
                     cls.query_payload["return"] = list()
                 if isinstance(arg, tuple):
                     for a in arg:
-                        select = json.loads(a) if cls.is_json(a) else a
+                        select = json.loads(a) if Utils.is_json(a) else a
                         cls.query_payload["return"].append(select)
                 else:
-                    select = json.loads(arg) if cls.is_json(arg) else arg
+                    select = json.loads(arg) if Utils.is_json(arg) else arg
                     cls.query_payload["return"].append(select)
         return cls
 

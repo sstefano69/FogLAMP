@@ -6,19 +6,19 @@
 
 """Core server module"""
 
-import os
-import sys
-import signal
 import asyncio
-from aiohttp import web
+import os
+import signal
 import subprocess
+import sys
 
+from aiohttp import web
 from foglamp import logger
-from foglamp.core import routes
 from foglamp.core import middleware
+from foglamp.core import routes
+from foglamp.core.scheduler import Scheduler
 from foglamp.core.service_registry.instance import Service
 from foglamp.storage.storage import Storage
-from foglamp.core.scheduler import Scheduler
 
 __author__ = "Amarendra K. Sinha, Praveen Garg, Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -71,7 +71,7 @@ class Server:
     async def _start_scheduler(cls):
         """Starts the scheduler"""
         _logger.info("start scheduler")
-        cls.scheduler = Scheduler(cls.core_management_port)
+        cls.scheduler = Scheduler(cls._host, cls.core_management_port)
         await cls.scheduler.start()
 
     @staticmethod
