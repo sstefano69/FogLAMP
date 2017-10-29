@@ -131,7 +131,6 @@ class Scheduler(object):
         if not cls._core_management_host:
             cls._core_management_host = core_management_host
 
-
         # Instance attributes
         self._ready = False
         """True when the scheduler is ready to accept API calls"""
