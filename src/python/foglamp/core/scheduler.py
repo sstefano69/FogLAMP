@@ -23,7 +23,7 @@ from sqlalchemy.dialects import postgresql as pg_types
 
 from foglamp import logger
 from foglamp import configuration_manager
-
+from foglamp.core.service_registry.instance import Service
 
 __author__ = "Terris Linenbach"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -409,16 +409,26 @@ class Scheduler(object):
     _tasks_tbl = None  # type: sqlalchemy.Table
     _logger = None  # type: logging.Logger
 
-    def __init__(self):
+    _core_management_host = None
+    _core_management_port = None
+
+    # TODO: Remove below '=None' after FOGL-521 is merged
+    def __init__(self, core_management_host=None, core_management_port=None):
         """Constructor"""
 
         cls = Scheduler
 
         # Initialize class attributes
+
         if not cls._logger:
-            cls._logger = logger.setup(__name__)
+            cls._logger = logger.setup(__name__, level=20)
             # cls._logger = logger.setup(__name__, destination=logger.CONSOLE, level=logging.DEBUG)
             # cls._logger = logger.setup(__name__, level=logging.DEBUG)
+
+        if not cls._core_management_port:
+            cls._core_management_port = core_management_port
+        if not cls._core_management_host:
+            cls._core_management_host = core_management_host
 
         if cls._schedules_tbl is None:
             metadata = sqlalchemy.MetaData()
@@ -622,15 +632,21 @@ class Scheduler(object):
         # the start of the awaited coroutine.
         args = self._process_scripts[schedule.process_name]
 
+        # add core management host and port to process script args
+        args_to_exec = args.copy()
+        args_to_exec.append("--port={}".format(self._core_management_port))
+        args_to_exec.append("--address=127.0.0.1")
+        args_to_exec.append("--name={}".format(schedule.process_name))
+
         task_process = self._TaskProcess()
         task_process.start_time = time.time()
 
         try:
-            process = await asyncio.create_subprocess_exec(*args)
+            process = await asyncio.create_subprocess_exec(*args_to_exec)
         except EnvironmentError:
             self._logger.exception(
                 "Unable to start schedule '%s' process '%s'\n%s".format(
-                    schedule.name, schedule.process_name, args))
+                    schedule.name, schedule.process_name, args_to_exec))
             raise
 
         task_id = uuid.uuid4()
@@ -644,7 +660,7 @@ class Scheduler(object):
         self._logger.info(
             "Process started: Schedule '%s' process '%s' task %s pid %s, %s running tasks\n%s",
             schedule.name, schedule.process_name, task_id, process.pid,
-            len(self._task_processes), args)
+            len(self._task_processes), args_to_exec)
 
         # Startup tasks are not tracked in the tasks table
         if schedule.type != Schedule.Type.STARTUP:
@@ -1392,6 +1408,7 @@ class Scheduler(object):
             tasks.append(task)
 
         return tasks
+
     async def get_task(self, task_id: uuid.UUID)->Task:
         """Retrieves a task given its id"""
         query = sqlalchemy.select([self._tasks_tbl.c.id,
@@ -1609,6 +1626,7 @@ class Scheduler(object):
         Raises:
             NotReadyError: Scheduler was stopped
         """
+
         if self._paused or self._schedule_executions is None:
             raise NotReadyError("The scheduler was stopped and can not be restarted")
 
@@ -1618,13 +1636,24 @@ class Scheduler(object):
         if self._start_time:
             raise NotReadyError("The scheduler is starting")
 
-        self._logger.info("Starting")
-
         self._start_time = self.current_time if self.current_time else time.time()
+        # FIXME: This is an inefficient way of waiting for the storage to register.
+        # The spec describes a way to trigger the continued startup on receipt of the registration record.
+        # this will work but is not very elegant.
 
-        # Hard-code storage server:
-        # wait self._start_startup_task(self._schedules['storage'])
-        # Then wait for it to start.
+        # make sure that it go forward only when storage service is ready
+        storage_service = None
+
+        # TODO: Remove below 'if' after FOGL-521 is merged, as till we do not use storage layer in scheduler, we need
+        #       to bypass storage discovery/registration in scheduler
+        if Scheduler._core_management_port is not None:
+            while storage_service is None:  # TODO: wait for x minutes?
+                try:
+                    found_services = Service.Instances.get(name="FogLAMP Storage")
+                    storage_service = found_services[0]
+                except Exception:
+                    await asyncio.sleep(5)
+            self._logger.info("Starting Scheduler; Management port received is %d", self._core_management_port)
 
         await self._read_config()
         await self._mark_tasks_interrupted()
