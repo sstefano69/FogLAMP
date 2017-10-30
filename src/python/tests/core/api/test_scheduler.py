@@ -7,10 +7,11 @@
 import asyncio
 import json
 import uuid
-
+import asyncpg
 import pytest
 import requests
-from foglamp.core.scheduler import Schedule
+import time
+from foglamp.core.scheduler_entities import Schedule
 
 __author__ = "Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -51,10 +52,24 @@ class TestScheduler:
     @classmethod
     def setup_class(cls):
         asyncio.get_event_loop().run_until_complete(add_master_data())
+        from subprocess import call
+        call(["foglamp", "start"])
+        # TODO: Due to lengthy start up, now tests need a better way to start foglamp or poll some
+        #       external process to check if foglamp has started.
+        time.sleep(30)
 
     @classmethod
     def teardown_class(cls):
+        from subprocess import call
+        call(["foglamp", "stop"])
+        time.sleep(4)
         asyncio.get_event_loop().run_until_complete(delete_master_data())
+
+    def setup_method(self, method):
+        pass
+
+    def teardown_method(self, method):
+        pass
 
     def _create_schedule(self, data):
         r = requests.post(BASE_URL + '/schedule', data=json.dumps(data), headers=headers)
@@ -87,7 +102,7 @@ class TestScheduler:
         data = {"type": 3, "name": "test_post_sch", "process_name": "testsleep30", "repeat": 3600}
         r = requests.post(BASE_URL+'/schedule', data=json.dumps(data), headers=headers)
         retval = dict(r.json())
-
+        print(retval)
         # Assert the POST request response
         assert 200 == r.status_code
         assert uuid.UUID(retval['schedule']['id'], version=4)

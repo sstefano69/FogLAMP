@@ -12,9 +12,10 @@ import uuid
 
 import aiopg
 import pytest
+from foglamp.core.server import Server
 from foglamp.core.scheduler import Scheduler
-from foglamp.core.scheduler.scheduler_entities import IntervalSchedule, Task, Schedule, TimedSchedule, ManualSchedule, StartUpSchedule
-from foglamp.core.scheduler.scheduler_exceptions import ScheduleNotFoundError
+from foglamp.core.scheduler_entities import IntervalSchedule, Task, Schedule, TimedSchedule, ManualSchedule, StartUpSchedule
+from foglamp.core.scheduler_exceptions import ScheduleNotFoundError
 
 __author__ = "Terris Linenbach, Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -22,12 +23,34 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 _CONNECTION_STRING = "dbname='foglamp' user='foglamp'"
+_FOGLAMP_ROOT = os.getenv("FOGLAMP_ROOT", default='/home/foglamp/foglamp/FogLAMP')
+_STORAGE_DIR = os.path.expanduser(_FOGLAMP_ROOT + '/services/storage')
 
 
 @pytest.allure.feature("unit")
 @pytest.allure.story("scheduler")
 class TestScheduler:
     _engine = None  # type: aiopg.sa.Engine
+    _is_management_started = False
+    _address = None
+    _host = '0.0.0.0'
+    _m_port = 0
+    _app = None
+    _server_handler = None
+    _server = None
+
+    @classmethod
+    def setup_class(cls):
+        pass
+
+    @classmethod
+    def teardown_class(cls):
+        loop = asyncio.get_event_loop()
+        TestScheduler._server.close()
+        loop.run_until_complete(TestScheduler._server.wait_closed())
+        loop.run_until_complete(TestScheduler._app.shutdown())
+        loop.run_until_complete(TestScheduler.__server_handler.shutdown(60.0))
+        loop.run_until_complete(TestScheduler._app.cleanup())
 
     async def _get_connection_pool(self) -> aiopg.sa.Engine:
         """Returns a database connection pool object"""
@@ -57,6 +80,7 @@ class TestScheduler:
     @staticmethod
     async def stop_scheduler(scheduler: Scheduler) -> None:
         """stop the schedule process - called at the end of each test"""
+        print("Stopping Scheduler from Test")
         while True:
             try:
                 await scheduler.stop()  # Call the stop command
@@ -64,19 +88,40 @@ class TestScheduler:
             except TimeoutError:
                 await asyncio.sleep(1)
 
-    def setup_method(self):
-        pass
+    @staticmethod
+    async def start_management(host, m_port):
+        loop = asyncio.get_event_loop()
+        app = Server._make_core_app()
+        server_handler = app.make_handler()
+        coro = loop.create_server(server_handler, host, m_port)
+        # added coroutine
+        server = await coro
+        address, port = server.sockets[0].getsockname()
+        return app, server_handler, server, address, port
 
-    def teardown_method(self):
-        pass
+    @staticmethod
+    def start_storage(host, m_port):
+        try:
+            cmd_with_args = ['./storage', '--address={}'.format(host),
+                             '--port={}'.format(m_port)]
+            import subprocess
+            subprocess.call(cmd_with_args, cwd=_STORAGE_DIR)
+        except Exception as ex:
+            pass
 
     @pytest.mark.asyncio
     async def test_stop(self):
         """Test that stop_scheduler actually works"""
-        scheduler = Scheduler()  # Declare schedule
-
         await self.populate_test_data()  # Populate data in foglamp.scheduled_processes
-        await scheduler.start()  # Start scheduler
+
+        # TODO: Put below in setup_class?
+        if not self._is_management_started:
+            self._app, self._server_handler, self._server, self._address, self._m_port = await self.start_management(self._host, 0)
+            self.start_storage(self._address, self._m_port)
+            self._is_management_started = True
+
+        scheduler = Scheduler(self._address, self._m_port)
+        await scheduler.start()
 
         # Set schedule interval
         interval_schedule = IntervalSchedule()
